@@ -1,11 +1,11 @@
-import React from 'react';
-import { SymbolView } from 'expo-symbols';
 import { Link, Tabs } from 'expo-router';
-import { Platform, Pressable } from 'react-native';
+import { SymbolView } from 'expo-symbols';
+import React from 'react';
+import { Pressable } from 'react-native';
 
-import Colors from '@/constants/Colors';
-import { useColorScheme } from '@/components/useColorScheme';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
+import { useColorScheme } from '@/components/useColorScheme';
+import Colors from '@/constants/Colors';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
@@ -19,20 +19,23 @@ export default function TabLayout() {
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen
-        name="index"
-        options={{
-          title: 'Tab One',
-          tabBarIcon: ({ color }) => (
-            <SymbolView
-              name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
-              }}
-              tintColor={color}
-              size={28}
-            />
-          ),
+  name="index"
+  options={{
+    title: 'EnergiLink',
+    tabBarLabel: 'Home',
+    headerTitle: 'EnergiLink',
+    tabBarIcon: ({ color, focused }) => (
+      <SymbolView
+        name={{
+          ios: focused ? 'bolt.circle.fill' : 'bolt.circle',
+          android: 'bolt',
+          web: 'bolt',
+        }}
+        tintColor={color}
+        size={30}
+      />
+    ),
+
           headerRight: () => (
             <Link href="/modal" asChild>
               <Pressable style={{ marginRight: 15 }}>
@@ -50,15 +53,15 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="table"
         options={{
-          title: 'Tab Two',
+          title: 'History Table',
           tabBarIcon: ({ color }) => (
             <SymbolView
               name={{
-                ios: 'chevron.left.forwardslash.chevron.right',
-                android: 'code',
-                web: 'code',
+                ios: 'tablecells',
+                android: 'table_chart',
+                web: 'table'
               }}
               tintColor={color}
               size={28}
