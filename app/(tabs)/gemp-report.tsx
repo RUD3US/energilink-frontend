@@ -70,7 +70,7 @@ export default function GempReportScreen() {
           onPress={() => {
             Alert.alert(
               "Reset Manual Inputs",
-              "This clears manual GEMP entries. The current month kWh will remain from live dynamic data.",
+              "This clears manual table values. The current month kWh remains dynamic.",
               [
                 { text: "Cancel", style: "cancel" },
                 {
