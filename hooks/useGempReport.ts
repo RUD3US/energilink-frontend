@@ -8,12 +8,10 @@ export type GempHeader = {
   address?: string;
   fax?: string;
   region?: string;
-
   defaultBuildingDesc?: string;
   defaultGrossArea?: string;
   defaultAirconArea?: string;
   defaultOccupants?: string;
-
   preparedBy?: string;
   preparedByDesignation?: string;
   notedBy?: string;
@@ -66,9 +64,10 @@ type GempStoreState = {
   loading: boolean;
   error: string;
   initialized: boolean;
+  version: number;
 };
 
-const STORAGE_KEY = "gemp-report-form-v4";
+const STORAGE_KEY = "gemp-report-form-v5";
 
 const MONTHS = [
   "January",
@@ -85,9 +84,9 @@ const MONTHS = [
   "December",
 ];
 
-const STATIC_HEADER: GempHeader = {
+const EMPTY_HEADER: GempHeader = {
   year: String(new Date().getFullYear()),
-  agency: "GEMP Agency Name",
+  agency: "",
   tel: "",
   address: "",
   fax: "",
@@ -102,23 +101,25 @@ const STATIC_HEADER: GempHeader = {
   notedByDesignation: "",
 };
 
-const STATIC_GEMP_ROWS: GempRow[] = MONTHS.map((month) => ({
-  month,
-  baseline2025: "",
-  buildingDesc: "",
-  grossArea: "",
-  airconArea: "",
-  occupants: "",
-  kwh: "",
-}));
-
 function createDefaultForm(): GempForm {
   return {
-    header: {
-      ...STATIC_HEADER,
-      year: String(new Date().getFullYear()),
-    },
-    rows: STATIC_GEMP_ROWS.map((r) => ({ ...r })),
+    header: { ...EMPTY_HEADER },
+    rows: MONTHS.map((month) => ({
+      month,
+      baseline2025: "",
+      buildingDesc: "",
+      grossArea: "",
+      airconArea: "",
+      occupants: "",
+      kwh: "",
+    })),
+  };
+}
+
+function cloneForm(form: GempForm): GempForm {
+  return {
+    header: { ...form.header },
+    rows: form.rows.map((row) => ({ ...row })),
   };
 }
 
@@ -142,18 +143,26 @@ function loadFormFromStorage(): GempForm {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return createDefaultForm();
 
-    const parsed = JSON.parse(raw) as GempForm;
+    const parsed = JSON.parse(raw) as Partial<GempForm>;
+    const savedRows = Array.isArray(parsed?.rows) ? parsed.rows : [];
 
     return {
       header: {
-        ...STATIC_HEADER,
+        ...EMPTY_HEADER,
         ...(parsed?.header || {}),
       },
-      rows: MONTHS.map((month, idx) => ({
-        ...STATIC_GEMP_ROWS[idx],
-        ...(parsed?.rows?.find((r) => r.month === month) || {}),
-        month,
-      })),
+      rows: MONTHS.map((month) => {
+        const found = savedRows.find((r) => r?.month === month);
+        return {
+          month,
+          baseline2025: found?.baseline2025 ?? "",
+          buildingDesc: found?.buildingDesc ?? "",
+          grossArea: found?.grossArea ?? "",
+          airconArea: found?.airconArea ?? "",
+          occupants: found?.occupants ?? "",
+          kwh: found?.kwh ?? "",
+        };
+      }),
     };
   } catch {
     return createDefaultForm();
@@ -165,7 +174,7 @@ function saveFormToStorage(form: GempForm) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
   } catch {
-    // ignore
+    // ignore storage errors
   }
 }
 
@@ -175,6 +184,7 @@ let store: GempStoreState = {
   loading: false,
   error: "",
   initialized: false,
+  version: 0,
 };
 
 const listeners = new Set<() => void>();
@@ -208,8 +218,12 @@ function ensureInitialized() {
 }
 
 function updateForm(nextForm: GempForm) {
-  saveFormToStorage(nextForm);
-  setStore({ form: nextForm });
+  const clean = cloneForm(nextForm);
+  saveFormToStorage(clean);
+  setStore({
+    form: clean,
+    version: store.version + 1,
+  });
 }
 
 async function refreshDynamicInternal() {
@@ -261,28 +275,26 @@ export function useGempReport() {
   }, []);
 
   const updateHeader = useCallback((patch: Partial<GempHeader>) => {
-    const nextForm: GempForm = {
+    updateForm({
       ...store.form,
       header: {
         ...store.form.header,
         ...patch,
       },
-    };
-    updateForm(nextForm);
+    });
   }, []);
 
   const updateRow = useCallback((index: number, patch: Partial<GempRow>) => {
-    const nextForm: GempForm = {
+    updateForm({
       ...store.form,
       rows: store.form.rows.map((row, i) =>
         i === index ? { ...row, ...patch } : row
       ),
-    };
-    updateForm(nextForm);
+    });
   }, []);
 
   const applyDefaultsToAllMonths = useCallback(() => {
-    const nextForm: GempForm = {
+    updateForm({
       ...store.form,
       rows: store.form.rows.map((row) => ({
         ...row,
@@ -291,8 +303,7 @@ export function useGempReport() {
         airconArea: row.airconArea || store.form.header.defaultAirconArea || "",
         occupants: row.occupants || store.form.header.defaultOccupants || "",
       })),
-    };
-    updateForm(nextForm);
+    });
   }, []);
 
   const reset = useCallback(() => {
@@ -308,12 +319,10 @@ export function useGempReport() {
 
     setStore({
       form: next,
-      dynamic: null,
       error: "",
       loading: false,
+      version: store.version + 1,
     });
-
-    refreshDynamicInternal();
   }, []);
 
   const refresh = useCallback(async () => {
@@ -322,10 +331,10 @@ export function useGempReport() {
 
   const report = useMemo(() => {
     return {
-      header: state.form.header,
+      header: { ...state.form.header },
       rows: state.form.rows.map((row) => ({ ...row })),
     };
-  }, [state.form]);
+  }, [state.form, state.version]);
 
   const stats = useMemo<GempStats>(() => {
     return {
@@ -335,7 +344,7 @@ export function useGempReport() {
       avgOccupants: averageString(report.rows.map((r) => parseNum(r.occupants)), 2),
       avgKwh: averageString(report.rows.map((r) => parseNum(r.kwh)), 2),
     };
-  }, [report.rows]);
+  }, [report.rows, state.version]);
 
   return {
     report,
@@ -343,6 +352,7 @@ export function useGempReport() {
     dynamic: state.dynamic,
     loading: state.loading,
     error: state.error,
+    version: state.version,
     refresh,
     updateHeader,
     updateRow,
