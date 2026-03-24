@@ -181,8 +181,11 @@ function normalizeTimestampInput(s: string): string | null {
 export default function TabOneScreen() {
   const { width } = useWindowDimensions();
 
-  const showPairsSideBySide = width >= 760;
-  const pairDirection = showPairsSideBySide ? "row" : "column";
+  const showChartsSideBySide = width >= 760;
+  const showNotesSideBySide = width >= 760;
+
+  const chartRowDirection = showChartsSideBySide ? "row" : "column";
+  const notesRowDirection = showNotesSideBySide ? "row" : "column";
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
@@ -426,7 +429,7 @@ export default function TabOneScreen() {
 
       <View
         style={{
-          flexDirection: pairDirection,
+          flexDirection: chartRowDirection,
           gap: CARD_GAP,
           alignItems: "stretch",
           flexWrap: "nowrap",
@@ -473,7 +476,7 @@ export default function TabOneScreen() {
 
       <View
         style={{
-          flexDirection: pairDirection,
+          flexDirection: chartRowDirection,
           gap: CARD_GAP,
           alignItems: "stretch",
           flexWrap: "nowrap",
@@ -558,7 +561,7 @@ export default function TabOneScreen() {
 
       <View
         style={{
-          flexDirection: pairDirection,
+          flexDirection: notesRowDirection,
           gap: CARD_GAP,
           alignItems: "stretch",
           flexWrap: "nowrap",
