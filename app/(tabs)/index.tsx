@@ -136,7 +136,7 @@ function ChartCard({
   title,
   latestLabel,
   latestValueText,
-  minHeight = 470,
+  minHeight = 400,
   children,
 }: {
   title: string;
@@ -181,11 +181,11 @@ function normalizeTimestampInput(s: string): string | null {
 export default function TabOneScreen() {
   const { width } = useWindowDimensions();
 
-  const showPairsSideBySide = width >= 1200;
-  const rowDirection = showPairsSideBySide ? "row" : "column";
+  const showPairsSideBySide = width >= 760;
+  const pairDirection = showPairsSideBySide ? "row" : "column";
 
   const pairCardWidth = showPairsSideBySide
-    ? Math.max((width - PAGE_PADDING * 2 - CARD_GAP) / 2, 320)
+    ? (width - PAGE_PADDING * 2 - CARD_GAP) / 2
     : width - PAGE_PADDING * 2;
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
@@ -428,19 +428,19 @@ export default function TabOneScreen() {
         <Text>Refresh now</Text>
       </Pressable>
 
-      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
         <View style={{ width: pairCardWidth }}>
           <ChartCard
             title="Voltage (30-minute archive)"
             latestLabel="Latest voltage"
             latestValueText={formatLatestValue(latestVoltage, 2, "V")}
-            minHeight={420}
+            minHeight={390}
           >
             <SimpleLineChart
               points={voltagePoints}
               unit="V"
               decimals={2}
-              height={300}
+              height={240}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
             />
@@ -452,13 +452,13 @@ export default function TabOneScreen() {
             title="Current (30-minute archive)"
             latestLabel="Latest current"
             latestValueText={formatLatestValue(latestCurrent, 3, "A")}
-            minHeight={420}
+            minHeight={390}
           >
             <SimpleLineChart
               points={currentPoints}
               unit="A"
               decimals={3}
-              height={300}
+              height={240}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
             />
@@ -468,13 +468,13 @@ export default function TabOneScreen() {
 
       <DailyKwhBarCard days={14} />
 
-      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
         <View style={{ width: pairCardWidth }}>
           <ChartCard
             title="Intervaled Power Graph (30-minute archive)"
             latestLabel="Latest archived power"
             latestValueText={formatLatestValue(latestIntervaledPower, 2, "W")}
-            minHeight={500}
+            minHeight={470}
           >
             <Text style={{ color: "#555" }}>
               Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
@@ -488,7 +488,7 @@ export default function TabOneScreen() {
               notes={intervaledPowerChartNotes}
               unit="W"
               decimals={2}
-              height={280}
+              height={230}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
               selectedNoteId={selectedIntervaledPowerNoteId}
@@ -501,7 +501,7 @@ export default function TabOneScreen() {
               }}
               onSelectedPointInvalid={() => setSelectedIntervaledPowerPoint(null)}
               numberedPointSelection={true}
-              maxNumberedPoints={10}
+              maxNumberedPoints={8}
               showPointChooser={true}
             />
           </ChartCard>
@@ -512,7 +512,7 @@ export default function TabOneScreen() {
             title="Realtime Power Graph (30 seconds)"
             latestLabel="Latest realtime power"
             latestValueText={formatLatestValue(latestRealtimePower, 2, "W")}
-            minHeight={500}
+            minHeight={470}
           >
             <Text style={{ color: "#555" }}>
               Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
@@ -526,7 +526,7 @@ export default function TabOneScreen() {
               notes={realtimePowerChartNotes}
               unit="W"
               decimals={2}
-              height={280}
+              height={230}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
               selectedNoteId={selectedRealtimePowerNoteId}
@@ -539,14 +539,14 @@ export default function TabOneScreen() {
               }}
               onSelectedPointInvalid={() => setSelectedRealtimePowerPoint(null)}
               numberedPointSelection={true}
-              maxNumberedPoints={12}
+              maxNumberedPoints={10}
               showPointChooser={true}
             />
           </ChartCard>
         </View>
       </View>
 
-      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
         <View style={{ width: pairCardWidth }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
@@ -581,13 +581,13 @@ export default function TabOneScreen() {
           title="Power Factor (30-minute archive)"
           latestLabel="Latest power factor"
           latestValueText={formatLatestValue(latestPF, 3)}
-          minHeight={420}
+          minHeight={390}
         >
           <SimpleLineChart
             points={pfPoints}
             unit="PF"
             decimals={3}
-            height={300}
+            height={240}
             hoursBeforeLatest={3}
             hoursAfterLatest={2}
           />
