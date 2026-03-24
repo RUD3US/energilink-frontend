@@ -449,6 +449,8 @@ export default function TabOneScreen() {
               height={240}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
+              showYAxisLabels={true}
+              forceZeroInDomain={false}
             />
           </ChartCard>
         </View>
@@ -467,6 +469,8 @@ export default function TabOneScreen() {
               height={240}
               hoursBeforeLatest={3}
               hoursAfterLatest={2}
+              showYAxisLabels={true}
+              forceZeroInDomain={true}
             />
           </ChartCard>
         </View>
@@ -610,6 +614,8 @@ export default function TabOneScreen() {
             height={240}
             hoursBeforeLatest={3}
             hoursAfterLatest={2}
+            showYAxisLabels={true}
+            forceZeroInDomain={true}
           />
         </ChartCard>
       </View>
