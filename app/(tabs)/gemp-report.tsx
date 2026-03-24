@@ -42,8 +42,8 @@ function StatBox({
 }
 
 export default function GempReportScreen() {
-  const { report, stats, dynamic, loading, error, refresh, reset } = useGempReport();
-  const rows = useMemo(() => report.rows ?? [], [report.rows]);
+  const { report, stats, dynamic, loading, error, refresh, reset, version } = useGempReport();
+  const rows = useMemo(() => report.rows ?? [], [report.rows, version]);
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
@@ -129,7 +129,10 @@ export default function GempReportScreen() {
 
         <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
           <StatBox label="Current month kWh sum" value={safeFixed(dynamic?.current_month_kwh, 2)} />
-          <StatBox label="Average kWh per hour" value={safeFixed(dynamic?.avg_kwh_per_hour_current_month, 4)} />
+          <StatBox
+            label="Average kWh per hour"
+            value={safeFixed(dynamic?.avg_kwh_per_hour_current_month, 4)}
+          />
           <StatBox label="Last 30 days kWh" value={safeFixed(dynamic?.last_30_days_kwh, 2)} />
           <StatBox label="Average daily kWh (30d)" value={safeFixed(dynamic?.avg_daily_kwh_30d, 2)} />
         </View>
@@ -146,6 +149,7 @@ export default function GempReportScreen() {
       </View>
 
       <View
+        key={version}
         style={{
           padding: 12,
           borderWidth: 1,
@@ -176,7 +180,7 @@ export default function GempReportScreen() {
 
         {rows.map((r) => (
           <View
-            key={r.month}
+            key={`${version}-${r.month}`}
             style={{
               flexDirection: "row",
               gap: 8,
