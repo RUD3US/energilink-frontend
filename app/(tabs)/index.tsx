@@ -28,6 +28,7 @@ import { useRealtime } from "../../hooks/useRealtime";
 import { createNote, deleteNote } from "../../lib/api";
 
 import { AuthPanel } from "../../components/AuthPanel";
+import DailyKwhBarCard from "../../components/DailyKwhBarCard";
 import { NotesBelowGraph } from "../../components/NotesBelowGraph";
 import { SimpleLineChart } from "../../components/SimpleLineChart";
 
@@ -51,12 +52,6 @@ type NoteBelow = {
 
 type PowerNoteMode = "intervaled" | "realtime";
 
-type DailyKwhBar = {
-  dayKey: string;
-  label: string;
-  kwh: number;
-};
-
 const FIELD_REALTIME_POWER = "power_realtime";
 
 const ARCHIVE_LIMIT = "500";
@@ -66,29 +61,8 @@ const ARCHIVE_REFRESH_MS = 30 * 60 * 1000;
 const REALTIME_POWER_REFRESH_MS = 30 * 1000;
 const NOTES_REFRESH_MS = 15 * 1000;
 
-const DAILY_KWH_DAYS = 7;
-
 function toMs(iso: string) {
   return new Date(iso).getTime();
-}
-
-function startOfDayMs(ms: number) {
-  const d = new Date(ms);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
-
-function endOfDayMs(ms: number) {
-  const d = new Date(ms);
-  d.setHours(23, 59, 59, 999);
-  return d.getTime();
-}
-
-function dayLabel(ms: number) {
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function valueNearTime(points: Point[], iso: string, toleranceSec = 120): number | null {
@@ -128,80 +102,6 @@ function latestValue(points: Point[]): number | null {
 function formatLatestValue(value: number | null, decimals: number, unit?: string) {
   if (value === null) return "—";
   return `${value.toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
-}
-
-function buildDailyKwhBarsFromWatts(points: Point[], days: number): DailyKwhBar[] {
-  const now = Date.now();
-  const fromMs = startOfDayMs(now - (days - 1) * 24 * 60 * 60 * 1000);
-
-  const sorted = sanitizePoints(points)
-    .map((p) => ({
-      timeMs: toMs(p.time),
-      watts: p.value,
-    }))
-    .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.watts))
-    .sort((a, b) => a.timeMs - b.timeMs);
-
-  const buckets = new Map<string, number>();
-
-  for (let i = days - 1; i >= 0; i--) {
-    const dayMs = startOfDayMs(now - i * 24 * 60 * 60 * 1000);
-    const key = new Date(dayMs).toISOString().slice(0, 10);
-    buckets.set(key, 0);
-  }
-
-  if (sorted.length < 2) {
-    return Array.from(buckets.keys()).map((key) => {
-      const dayMs = startOfDayMs(new Date(key).getTime());
-      return {
-        dayKey: key,
-        label: dayLabel(dayMs),
-        kwh: 0,
-      };
-    });
-  }
-
-  for (let i = 0; i < sorted.length - 1; i++) {
-    const current = sorted[i];
-    const next = sorted[i + 1];
-
-    if (next.timeMs <= fromMs) continue;
-
-    const segStart = Math.max(current.timeMs, fromMs);
-    const segEnd = next.timeMs;
-
-    if (segEnd <= segStart) continue;
-
-    const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
-    if (gapHours > 6) continue;
-
-    if (!Number.isFinite(current.watts) || current.watts < 0) continue;
-
-    let cursor = segStart;
-
-    while (cursor < segEnd) {
-      const sliceEnd = Math.min(endOfDayMs(cursor) + 1, segEnd);
-      const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
-      const dayStart = startOfDayMs(cursor);
-      const key = new Date(dayStart).toISOString().slice(0, 10);
-
-      if (buckets.has(key)) {
-        const kwhToAdd = (current.watts / 1000) * sliceHours;
-        buckets.set(key, (buckets.get(key) || 0) + kwhToAdd);
-      }
-
-      cursor = sliceEnd;
-    }
-  }
-
-  return Array.from(buckets.keys()).map((key) => {
-    const dayMs = startOfDayMs(new Date(key).getTime());
-    return {
-      dayKey: key,
-      label: dayLabel(dayMs),
-      kwh: Number((buckets.get(key) || 0).toFixed(2)),
-    };
-  });
 }
 
 function LatestValueBox({
@@ -261,96 +161,6 @@ function ChartCard({
   );
 }
 
-function DailyKwhBarCard({
-  data,
-}: {
-  data: DailyKwhBar[];
-}) {
-  const max = Math.max(...data.map((d) => d.kwh), 1);
-  const today = data[data.length - 1]?.kwh ?? 0;
-  const yesterday = data[data.length - 2]?.kwh ?? 0;
-  const avg = data.length ? data.reduce((sum, d) => sum + d.kwh, 0) / data.length : 0;
-
-  return (
-    <View
-      style={{
-        gap: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: "#e5e7eb",
-        borderRadius: 16,
-        backgroundColor: "#fff",
-      }}
-    >
-      <Text style={{ fontSize: 16, fontWeight: "700" }}>
-        Daily kWh Bar Graph ({DAILY_KWH_DAYS} days)
-      </Text>
-
-      <Text style={{ color: "#555" }}>
-        Separate daily energy usage computed from the archived power data.
-      </Text>
-
-      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-        <LatestValueBox label="Today kWh" value={today.toFixed(2)} />
-        <LatestValueBox label="Yesterday kWh" value={yesterday.toFixed(2)} />
-        <LatestValueBox label="Average / day" value={avg.toFixed(2)} />
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View
-          style={{
-            flexDirection: "row",
-            alignItems: "flex-end",
-            gap: 16,
-            minHeight: 260,
-            paddingTop: 16,
-            paddingBottom: 8,
-          }}
-        >
-          {data.map((item) => {
-            const barHeight = Math.max((item.kwh / max) * 180, 10);
-
-            return (
-              <View
-                key={item.dayKey}
-                style={{
-                  width: 56,
-                  alignItems: "center",
-                  justifyContent: "flex-end",
-                  gap: 8,
-                }}
-              >
-                <Text style={{ fontSize: 11, fontWeight: "700" }}>
-                  {item.kwh.toFixed(2)}
-                </Text>
-
-                <View
-                  style={{
-                    width: 34,
-                    height: barHeight,
-                    borderRadius: 8,
-                    backgroundColor: "#111",
-                  }}
-                />
-
-                <Text
-                  style={{
-                    fontSize: 11,
-                    color: "#666",
-                    textAlign: "center",
-                  }}
-                >
-                  {item.label}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-      </ScrollView>
-    </View>
-  );
-}
-
 function normalizeTimestampInput(s: string): string | null {
   const raw = s.trim();
   if (!raw) return null;
@@ -382,11 +192,6 @@ export default function TabOneScreen() {
   const realtimePowerPoints = useMemo(
     () => sanitizePoints(realtimePowerRT.points),
     [realtimePowerRT.points]
-  );
-
-  const dailyKwhBars = useMemo(
-    () => buildDailyKwhBarsFromWatts(intervaledPowerPoints, DAILY_KWH_DAYS),
-    [intervaledPowerPoints]
   );
 
   const powerNotesQ = useNotes(DEFAULT_DEVICE, METRIC_POWER);
@@ -632,7 +437,7 @@ export default function TabOneScreen() {
         </ChartCard>
       </View>
 
-      <DailyKwhBarCard data={dailyKwhBars} />
+      <DailyKwhBarCard days={14} />
 
       <View style={{ flexDirection: twoCols ? "row" : "column", gap: 14, alignItems: "stretch" }}>
         <ChartCard
