@@ -68,9 +68,13 @@ export default function GempReportScreen() {
 
         <Pressable
           onPress={() => {
-            Alert.alert("Reset report", "This clears the GEMP form and report values.", [
+            Alert.alert("Reset Report", "This will clear all GEMP input and report values.", [
               { text: "Cancel", style: "cancel" },
-              { text: "Reset", style: "destructive", onPress: reset },
+              {
+                text: "Reset",
+                style: "destructive",
+                onPress: () => reset(),
+              },
             ]);
           }}
           style={{
