@@ -178,8 +178,8 @@ function normalizeTimestampInput(s: string): string | null {
 export default function TabOneScreen() {
   const { width } = useWindowDimensions();
 
-  const chartPairsSideBySide = width >= 900;
-  const pairDirection = chartPairsSideBySide ? "row" : "column";
+  const showSideBySide = width >= 900;
+  const rowDirection = showSideBySide ? "row" : "column";
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
@@ -421,7 +421,7 @@ export default function TabOneScreen() {
         <Text>Refresh now</Text>
       </Pressable>
 
-      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Voltage (30-minute archive)"
           latestLabel="Latest voltage"
@@ -453,7 +453,7 @@ export default function TabOneScreen() {
 
       <DailyKwhBarCard days={14} />
 
-      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Intervaled Power Graph (30-minute archive)"
           latestLabel="Latest archived power"
@@ -525,7 +525,7 @@ export default function TabOneScreen() {
         </ChartCard>
       </View>
 
-      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
         <View style={{ flex: 1 }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
@@ -555,7 +555,7 @@ export default function TabOneScreen() {
         </View>
       </View>
 
-      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Power Factor (30-minute archive)"
           latestLabel="Latest power factor"
