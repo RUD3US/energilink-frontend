@@ -67,7 +67,7 @@ type GempStoreState = {
   version: number;
 };
 
-const STORAGE_KEY = "gemp-report-form-v5";
+const STORAGE_KEY = "gemp-report-form-v6";
 
 const MONTHS = [
   "January",
@@ -174,7 +174,7 @@ function saveFormToStorage(form: GempForm) {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(form));
   } catch {
-    // ignore storage errors
+    // ignore
   }
 }
 
@@ -308,14 +308,7 @@ export function useGempReport() {
 
   const reset = useCallback(() => {
     const next = createDefaultForm();
-
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // ignore
-      }
-    }
+    saveFormToStorage(next);
 
     setStore({
       form: next,
@@ -330,11 +323,26 @@ export function useGempReport() {
   }, []);
 
   const report = useMemo(() => {
+    const currentMonth =
+      state.dynamic?.current_month_label ?? MONTHS[new Date().getMonth()];
+    const dynamicCurrentMonthKwh =
+      state.dynamic?.current_month_kwh != null
+        ? state.dynamic.current_month_kwh.toFixed(2)
+        : "";
+
     return {
       header: { ...state.form.header },
-      rows: state.form.rows.map((row) => ({ ...row })),
+      rows: state.form.rows.map((row) => {
+        if (row.month === currentMonth) {
+          return {
+            ...row,
+            kwh: dynamicCurrentMonthKwh || row.kwh || "",
+          };
+        }
+        return { ...row };
+      }),
     };
-  }, [state.form, state.version]);
+  }, [state.form, state.dynamic, state.version]);
 
   const stats = useMemo<GempStats>(() => {
     return {
@@ -344,7 +352,7 @@ export function useGempReport() {
       avgOccupants: averageString(report.rows.map((r) => parseNum(r.occupants)), 2),
       avgKwh: averageString(report.rows.map((r) => parseNum(r.kwh)), 2),
     };
-  }, [report.rows, state.version]);
+  }, [report.rows]);
 
   return {
     report,
