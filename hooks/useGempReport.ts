@@ -241,6 +241,7 @@ async function refreshDynamicInternal() {
     }
 
     const json = (await res.json()) as GempDynamic;
+
     setStore({
       dynamic: json,
       loading: false,
