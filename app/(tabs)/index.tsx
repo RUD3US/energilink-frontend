@@ -61,6 +61,9 @@ const ARCHIVE_REFRESH_MS = 30 * 60 * 1000;
 const REALTIME_POWER_REFRESH_MS = 30 * 1000;
 const NOTES_REFRESH_MS = 15 * 1000;
 
+const PAGE_PADDING = 16;
+const CARD_GAP = 14;
+
 function toMs(iso: string) {
   return new Date(iso).getTime();
 }
@@ -133,20 +136,20 @@ function ChartCard({
   title,
   latestLabel,
   latestValueText,
+  minHeight = 470,
   children,
 }: {
   title: string;
   latestLabel: string;
   latestValueText: string;
+  minHeight?: number;
   children: React.ReactNode;
 }) {
   return (
     <View
       style={{
-        flex: 1,
-        minWidth: 0,
-        minHeight: 470,
         gap: 12,
+        minHeight,
         padding: 16,
         borderWidth: 1,
         borderColor: "#e5e7eb",
@@ -178,8 +181,12 @@ function normalizeTimestampInput(s: string): string | null {
 export default function TabOneScreen() {
   const { width } = useWindowDimensions();
 
-  const showSideBySide = width >= 900;
-  const rowDirection = showSideBySide ? "row" : "column";
+  const showPairsSideBySide = width >= 1200;
+  const rowDirection = showPairsSideBySide ? "row" : "column";
+
+  const pairCardWidth = showPairsSideBySide
+    ? Math.max((width - PAGE_PADDING * 2 - CARD_GAP) / 2, 320)
+    : width - PAGE_PADDING * 2;
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
@@ -389,7 +396,7 @@ export default function TabOneScreen() {
   const activeSelectedPoint = getActivePoint();
 
   return (
-    <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+    <ScrollView contentContainerStyle={{ padding: PAGE_PADDING, gap: CARD_GAP }}>
       <Text style={{ fontSize: 22, fontWeight: "700" }}>EnergiLink Live Monitoring</Text>
       <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
 
@@ -421,112 +428,126 @@ export default function TabOneScreen() {
         <Text>Refresh now</Text>
       </Pressable>
 
-      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
-        <ChartCard
-          title="Voltage (30-minute archive)"
-          latestLabel="Latest voltage"
-          latestValueText={formatLatestValue(latestVoltage, 2, "V")}
-        >
-          <SimpleLineChart
-            points={voltagePoints}
-            unit="V"
-            decimals={2}
-            hoursBeforeLatest={3}
-            hoursAfterLatest={2}
-          />
-        </ChartCard>
+      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+        <View style={{ width: pairCardWidth }}>
+          <ChartCard
+            title="Voltage (30-minute archive)"
+            latestLabel="Latest voltage"
+            latestValueText={formatLatestValue(latestVoltage, 2, "V")}
+            minHeight={420}
+          >
+            <SimpleLineChart
+              points={voltagePoints}
+              unit="V"
+              decimals={2}
+              height={300}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+            />
+          </ChartCard>
+        </View>
 
-        <ChartCard
-          title="Current (30-minute archive)"
-          latestLabel="Latest current"
-          latestValueText={formatLatestValue(latestCurrent, 3, "A")}
-        >
-          <SimpleLineChart
-            points={currentPoints}
-            unit="A"
-            decimals={3}
-            hoursBeforeLatest={3}
-            hoursAfterLatest={2}
-          />
-        </ChartCard>
+        <View style={{ width: pairCardWidth }}>
+          <ChartCard
+            title="Current (30-minute archive)"
+            latestLabel="Latest current"
+            latestValueText={formatLatestValue(latestCurrent, 3, "A")}
+            minHeight={420}
+          >
+            <SimpleLineChart
+              points={currentPoints}
+              unit="A"
+              decimals={3}
+              height={300}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+            />
+          </ChartCard>
+        </View>
       </View>
 
       <DailyKwhBarCard days={14} />
 
-      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
-        <ChartCard
-          title="Intervaled Power Graph (30-minute archive)"
-          latestLabel="Latest archived power"
-          latestValueText={formatLatestValue(latestIntervaledPower, 2, "W")}
-        >
-          <Text style={{ color: "#555" }}>
-            Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
-          </Text>
-          <Text style={{ color: "#555" }}>
-            notes total: {intervaledPowerNotesRaw.length} | notes in window: {intervaledPowerNotesInView.length}
-          </Text>
+      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+        <View style={{ width: pairCardWidth }}>
+          <ChartCard
+            title="Intervaled Power Graph (30-minute archive)"
+            latestLabel="Latest archived power"
+            latestValueText={formatLatestValue(latestIntervaledPower, 2, "W")}
+            minHeight={500}
+          >
+            <Text style={{ color: "#555" }}>
+              Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
+            </Text>
+            <Text style={{ color: "#555" }}>
+              notes total: {intervaledPowerNotesRaw.length} | notes in window: {intervaledPowerNotesInView.length}
+            </Text>
 
-          <SimpleLineChart
-            points={intervaledPowerPoints}
-            notes={intervaledPowerChartNotes}
-            unit="W"
-            decimals={2}
-            height={400}
-            hoursBeforeLatest={3}
-            hoursAfterLatest={2}
-            selectedNoteId={selectedIntervaledPowerNoteId}
-            selectedPointTime={selectedIntervaledPowerPoint?.time ?? null}
-            onSelectNoteId={(id) => setSelectedIntervaledPowerNoteId(id)}
-            onSelectPoint={(point) => {
-              setNoteMode("intervaled");
-              setSelectedIntervaledPowerPoint(point);
-              setManualTimestamp("");
-            }}
-            onSelectedPointInvalid={() => setSelectedIntervaledPowerPoint(null)}
-            numberedPointSelection={true}
-            maxNumberedPoints={12}
-            showPointChooser={true}
-          />
-        </ChartCard>
+            <SimpleLineChart
+              points={intervaledPowerPoints}
+              notes={intervaledPowerChartNotes}
+              unit="W"
+              decimals={2}
+              height={280}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              selectedNoteId={selectedIntervaledPowerNoteId}
+              selectedPointTime={selectedIntervaledPowerPoint?.time ?? null}
+              onSelectNoteId={(id) => setSelectedIntervaledPowerNoteId(id)}
+              onSelectPoint={(point) => {
+                setNoteMode("intervaled");
+                setSelectedIntervaledPowerPoint(point);
+                setManualTimestamp("");
+              }}
+              onSelectedPointInvalid={() => setSelectedIntervaledPowerPoint(null)}
+              numberedPointSelection={true}
+              maxNumberedPoints={10}
+              showPointChooser={true}
+            />
+          </ChartCard>
+        </View>
 
-        <ChartCard
-          title="Realtime Power Graph (30 seconds)"
-          latestLabel="Latest realtime power"
-          latestValueText={formatLatestValue(latestRealtimePower, 2, "W")}
-        >
-          <Text style={{ color: "#555" }}>
-            Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
-          </Text>
-          <Text style={{ color: "#555" }}>
-            notes total: {realtimePowerNotesRaw.length} | notes in window: {realtimePowerNotesInView.length}
-          </Text>
+        <View style={{ width: pairCardWidth }}>
+          <ChartCard
+            title="Realtime Power Graph (30 seconds)"
+            latestLabel="Latest realtime power"
+            latestValueText={formatLatestValue(latestRealtimePower, 2, "W")}
+            minHeight={500}
+          >
+            <Text style={{ color: "#555" }}>
+              Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
+            </Text>
+            <Text style={{ color: "#555" }}>
+              notes total: {realtimePowerNotesRaw.length} | notes in window: {realtimePowerNotesInView.length}
+            </Text>
 
-          <SimpleLineChart
-            points={realtimePowerPoints}
-            notes={realtimePowerChartNotes}
-            unit="W"
-            decimals={2}
-            height={400}
-            hoursBeforeLatest={3}
-            hoursAfterLatest={2}
-            selectedNoteId={selectedRealtimePowerNoteId}
-            selectedPointTime={selectedRealtimePowerPoint?.time ?? null}
-            onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
-            onSelectPoint={(point) => {
-              setNoteMode("realtime");
-              setSelectedRealtimePowerPoint(point);
-              setManualTimestamp("");
-            }}
-            onSelectedPointInvalid={() => setSelectedRealtimePowerPoint(null)}
-            numberedPointSelection={true}
-            maxNumberedPoints={16}
-            showPointChooser={true}
-          />
-        </ChartCard>
+            <SimpleLineChart
+              points={realtimePowerPoints}
+              notes={realtimePowerChartNotes}
+              unit="W"
+              decimals={2}
+              height={280}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              selectedNoteId={selectedRealtimePowerNoteId}
+              selectedPointTime={selectedRealtimePowerPoint?.time ?? null}
+              onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
+              onSelectPoint={(point) => {
+                setNoteMode("realtime");
+                setSelectedRealtimePowerPoint(point);
+                setManualTimestamp("");
+              }}
+              onSelectedPointInvalid={() => setSelectedRealtimePowerPoint(null)}
+              numberedPointSelection={true}
+              maxNumberedPoints={12}
+              showPointChooser={true}
+            />
+          </ChartCard>
+        </View>
       </View>
 
-      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
-        <View style={{ flex: 1 }}>
+      <View style={{ flexDirection: rowDirection, gap: CARD_GAP, alignItems: "stretch" }}>
+        <View style={{ width: pairCardWidth }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
             selectedNoteId={selectedIntervaledPowerNoteId}
@@ -540,7 +561,7 @@ export default function TabOneScreen() {
           />
         </View>
 
-        <View style={{ flex: 1 }}>
+        <View style={{ width: pairCardWidth }}>
           <NotesBelowGraph
             notes={realtimePowerNotesBelow}
             selectedNoteId={selectedRealtimePowerNoteId}
@@ -555,16 +576,18 @@ export default function TabOneScreen() {
         </View>
       </View>
 
-      <View style={{ flexDirection: rowDirection, gap: 14, alignItems: "stretch" }}>
+      <View>
         <ChartCard
           title="Power Factor (30-minute archive)"
           latestLabel="Latest power factor"
           latestValueText={formatLatestValue(latestPF, 3)}
+          minHeight={420}
         >
           <SimpleLineChart
             points={pfPoints}
             unit="PF"
             decimals={3}
+            height={300}
             hoursBeforeLatest={3}
             hoursAfterLatest={2}
           />
