@@ -132,6 +132,10 @@ function buildSelectableIndices(length: number, maxMarkers: number) {
   return result;
 }
 
+function formatAxisValue(value: number, decimals: number) {
+  return value.toFixed(decimals);
+}
+
 export function SimpleLineChart({
   points,
   notes = [],
@@ -148,6 +152,8 @@ export function SimpleLineChart({
   numberedPointSelection = false,
   maxNumberedPoints = 12,
   showPointChooser = false,
+  showYAxisLabels = false,
+  forceZeroInDomain = false,
 }: {
   points: ChartPoint[];
   notes?: ChartNote[];
@@ -164,6 +170,8 @@ export function SimpleLineChart({
   numberedPointSelection?: boolean;
   maxNumberedPoints?: number;
   showPointChooser?: boolean;
+  showYAxisLabels?: boolean;
+  forceZeroInDomain?: boolean;
 }) {
   const [svgWidth, setSvgWidth] = useState(700);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -171,7 +179,7 @@ export function SimpleLineChart({
   const rafRef = useRef<number | null>(null);
   const pendingIdx = useRef<number | null>(null);
 
-  const padL = 56;
+  const padL = showYAxisLabels ? 72 : 56;
   const padR = 16;
   const padT = 14;
   const padB = 64;
@@ -215,9 +223,12 @@ export function SimpleLineChart({
   const minYRaw = ys.length ? Math.min(...ys) : 0;
   const maxYRaw = ys.length ? Math.max(...ys) : 1;
 
-  const yPadding = Math.max((maxYRaw - minYRaw) * 0.15, 0.5);
-  const minY = minYRaw - yPadding;
-  const maxY = maxYRaw + yPadding;
+  const domainMin = forceZeroInDomain ? Math.min(0, minYRaw) : minYRaw;
+  const domainMax = forceZeroInDomain ? Math.max(0, maxYRaw) : maxYRaw;
+
+  const yPadding = Math.max((domainMax - domainMin) * 0.15, 0.5);
+  const minY = domainMin - yPadding;
+  const maxY = domainMax + yPadding;
   const spanY = Math.max(1e-9, maxY - minY);
   const spanT = Math.max(1, tMax - tMin);
 
@@ -395,6 +406,9 @@ export function SimpleLineChart({
   const tipX = Math.min(svgWidth - tipW - 8, Math.max(8, hx + 10));
   const tipY = Math.max(8, hy - tipH - 8);
 
+  const zeroInDomain = minY <= 0 && maxY >= 0;
+  const zeroY = zeroInDomain ? yScale(0) : null;
+
   const svgProps =
     Platform.OS === "web"
       ? ({
@@ -477,6 +491,57 @@ export function SimpleLineChart({
               </React.Fragment>
             );
           })}
+
+          {showYAxisLabels ? (
+            <>
+              <SvgText
+                x={padL - 8}
+                y={padT + 4}
+                fontSize="10"
+                fill="#444"
+                textAnchor="end"
+                pointerEvents="none"
+              >
+                max {formatAxisValue(maxYRaw, decimals)}
+              </SvgText>
+
+              <SvgText
+                x={padL - 8}
+                y={height - padB + 4}
+                fontSize="10"
+                fill="#444"
+                textAnchor="end"
+                pointerEvents="none"
+              >
+                min {formatAxisValue(minYRaw, decimals)}
+              </SvgText>
+
+              {zeroInDomain && zeroY != null ? (
+                <>
+                  <Line
+                    x1={padL}
+                    y1={zeroY}
+                    x2={svgWidth - padR}
+                    y2={zeroY}
+                    stroke="#cbd5e1"
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    pointerEvents="none"
+                  />
+                  <SvgText
+                    x={padL - 8}
+                    y={zeroY + 4}
+                    fontSize="10"
+                    fill="#444"
+                    textAnchor="end"
+                    pointerEvents="none"
+                  >
+                    0
+                  </SvgText>
+                </>
+              ) : null}
+            </>
+          ) : null}
 
           <SvgText
             x={padL}
