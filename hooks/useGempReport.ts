@@ -67,7 +67,7 @@ type GempStoreState = {
   version: number;
 };
 
-const STORAGE_KEY = "gemp-report-form-v7";
+const STORAGE_KEY = "gemp-report-form-v9";
 
 const MONTHS = [
   "January",
@@ -209,6 +209,7 @@ function getSnapshot() {
 
 function ensureInitialized() {
   if (store.initialized) return;
+
   store = {
     ...store,
     form: loadFormFromStorage(),
@@ -240,6 +241,7 @@ async function refreshDynamicInternal() {
     }
 
     const json = (await res.json()) as GempDynamic;
+
     setStore({
       dynamic: json,
       loading: false,
@@ -292,15 +294,27 @@ export function useGempReport() {
     });
   }, []);
 
-  const applyDefaultsToAllMonths = useCallback(() => {
+  const applyDefaultsToAllMonths = useCallback((overwrite = false) => {
     updateForm({
       ...store.form,
       rows: store.form.rows.map((row) => ({
         ...row,
-        buildingDesc: row.buildingDesc || store.form.header.defaultBuildingDesc || "",
-        grossArea: row.grossArea || store.form.header.defaultGrossArea || "",
-        airconArea: row.airconArea || store.form.header.defaultAirconArea || "",
-        occupants: row.occupants || store.form.header.defaultOccupants || "",
+        buildingDesc:
+          overwrite || !row.buildingDesc
+            ? store.form.header.defaultBuildingDesc || ""
+            : row.buildingDesc || "",
+        grossArea:
+          overwrite || !row.grossArea
+            ? store.form.header.defaultGrossArea || ""
+            : row.grossArea || "",
+        airconArea:
+          overwrite || !row.airconArea
+            ? store.form.header.defaultAirconArea || ""
+            : row.airconArea || "",
+        occupants:
+          overwrite || !row.occupants
+            ? store.form.header.defaultOccupants || ""
+            : row.occupants || "",
       })),
     });
   }, []);
@@ -324,6 +338,7 @@ export function useGempReport() {
   const report = useMemo(() => {
     const currentMonth =
       state.dynamic?.current_month_label ?? MONTHS[new Date().getMonth()];
+
     const dynamicCurrentMonthKwh =
       state.dynamic?.current_month_kwh != null
         ? state.dynamic.current_month_kwh.toFixed(2)
@@ -331,9 +346,12 @@ export function useGempReport() {
 
     const derivedRows = state.form.rows.map((row) => {
       const isCurrentMonth = row.month === currentMonth;
+
       return {
         ...row,
-        kwh: isCurrentMonth ? dynamicCurrentMonthKwh : row.kwh || "",
+        kwh: isCurrentMonth
+          ? (dynamicCurrentMonthKwh || row.kwh || "")
+          : (row.kwh || ""),
       };
     });
 
@@ -354,6 +372,7 @@ export function useGempReport() {
   }, [report.rows]);
 
   return {
+    form: state.form,
     report,
     stats,
     dynamic: state.dynamic,
