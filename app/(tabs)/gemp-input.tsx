@@ -1,5 +1,5 @@
 import React from "react";
-import { Alert, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { useGempReport } from "../../hooks/useGempReport";
 
 function Input({
@@ -33,6 +33,30 @@ function Input({
       />
     </View>
   );
+}
+
+async function confirmAction(title: string, message: string) {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") {
+      return window.confirm(`${title}\n\n${message}`);
+    }
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    Alert.alert(title, message, [
+      {
+        text: "Cancel",
+        style: "cancel",
+        onPress: () => resolve(false),
+      },
+      {
+        text: "Continue",
+        style: "destructive",
+        onPress: () => resolve(true),
+      },
+    ]);
+  });
 }
 
 export default function GempInputScreen() {
@@ -109,19 +133,14 @@ export default function GempInputScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => {
-              Alert.alert(
+            onPress={async () => {
+              const ok = await confirmAction(
                 "Override all month details",
-                "This will replace all monthly building details, gross area, air-conditioned area, and occupants with the current default values.",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Override All",
-                    style: "destructive",
-                    onPress: () => applyDefaultsToAllMonths(true),
-                  },
-                ]
+                "This will replace all monthly building details, gross area, air-conditioned area, and occupants with the current default values."
               );
+              if (ok) {
+                applyDefaultsToAllMonths(true);
+              }
             }}
             style={{
               padding: 12,
@@ -138,15 +157,14 @@ export default function GempInputScreen() {
           </Pressable>
 
           <Pressable
-            onPress={() => {
-              Alert.alert(
+            onPress={async () => {
+              const ok = await confirmAction(
                 "Reset Manual Inputs",
-                "This clears the manual GEMP form values. The current month kWh in the report remains dynamic.",
-                [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "Reset", style: "destructive", onPress: reset },
-                ]
+                "This clears the manual GEMP form values. The current month kWh in the report remains dynamic."
               );
+              if (ok) {
+                reset();
+              }
             }}
             style={{
               padding: 12,
