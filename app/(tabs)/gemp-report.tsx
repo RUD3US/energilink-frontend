@@ -68,14 +68,18 @@ export default function GempReportScreen() {
 
         <Pressable
           onPress={() => {
-            Alert.alert("Reset Report", "This will clear all manual GEMP inputs. The current month kWh will still come from live dynamic data.", [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Reset",
-                style: "destructive",
-                onPress: () => reset(),
-              },
-            ]);
+            Alert.alert(
+              "Reset Manual Inputs",
+              "This clears manual GEMP entries. The current month kWh will remain from live dynamic data.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Reset",
+                  style: "destructive",
+                  onPress: () => reset(),
+                },
+              ]
+            );
           }}
           style={{
             paddingVertical: 10,
@@ -86,7 +90,7 @@ export default function GempReportScreen() {
             backgroundColor: "#fff",
           }}
         >
-          <Text style={{ fontWeight: "700", color: "#b91c1c" }}>Reset Report</Text>
+          <Text style={{ fontWeight: "700", color: "#b91c1c" }}>Reset Manual Inputs</Text>
         </Pressable>
       </View>
 
