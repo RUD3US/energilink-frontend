@@ -68,7 +68,7 @@ export default function GempReportScreen() {
 
         <Pressable
           onPress={() => {
-            Alert.alert("Reset Report", "This will clear all GEMP input and report values.", [
+            Alert.alert("Reset Report", "This will clear all manual GEMP inputs. The current month kWh will still come from live dynamic data.", [
               { text: "Cancel", style: "cancel" },
               {
                 text: "Reset",
@@ -178,26 +178,33 @@ export default function GempReportScreen() {
           <Text style={{ width: 120, fontWeight: "800" }}>kWh</Text>
         </View>
 
-        {rows.map((r) => (
-          <View
-            key={`${version}-${r.month}`}
-            style={{
-              flexDirection: "row",
-              gap: 8,
-              paddingVertical: 6,
-              borderBottomWidth: 1,
-              borderBottomColor: "#fafafa",
-            }}
-          >
-            <Text style={{ width: 90 }}>{r.month}</Text>
-            <Text style={{ width: 110 }}>{r.baseline2025 || "-"}</Text>
-            <Text style={{ width: 130 }}>{r.buildingDesc || "-"}</Text>
-            <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
-            <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
-            <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
-            <Text style={{ width: 120, fontWeight: "800" }}>{r.kwh || "-"}</Text>
-          </View>
-        ))}
+        {rows.map((r) => {
+          const isCurrentMonth = r.month === dynamic?.current_month_label;
+
+          return (
+            <View
+              key={`${version}-${r.month}`}
+              style={{
+                flexDirection: "row",
+                gap: 8,
+                paddingVertical: 6,
+                borderBottomWidth: 1,
+                borderBottomColor: "#fafafa",
+                backgroundColor: isCurrentMonth ? "#fef3c7" : "transparent",
+              }}
+            >
+              <Text style={{ width: 90 }}>{r.month}</Text>
+              <Text style={{ width: 110 }}>{r.baseline2025 || "-"}</Text>
+              <Text style={{ width: 130 }}>{r.buildingDesc || "-"}</Text>
+              <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
+              <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
+              <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
+              <Text style={{ width: 120, fontWeight: isCurrentMonth ? "800" : "400" }}>
+                {r.kwh || "-"}
+              </Text>
+            </View>
+          );
+        })}
 
         <View style={{ flexDirection: "row", gap: 8, paddingTop: 10 }}>
           <Text style={{ width: 90, fontWeight: "800" }}>Average</Text>
