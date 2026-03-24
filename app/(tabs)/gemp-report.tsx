@@ -42,8 +42,7 @@ function StatBox({
 }
 
 export default function GempReportScreen() {
-  const { report, stats, dynamic, loading, error, refresh } = useGempReport();
-
+  const { report, stats, dynamic, loading, error, refresh, reset } = useGempReport();
   const rows = useMemo(() => report.rows ?? [], [report.rows]);
 
   return (
@@ -66,6 +65,25 @@ export default function GempReportScreen() {
             {loading ? "Refreshing..." : "Refresh dynamic kWh"}
           </Text>
         </Pressable>
+
+        <Pressable
+          onPress={() => {
+            Alert.alert("Reset report", "This clears the GEMP form and report values.", [
+              { text: "Cancel", style: "cancel" },
+              { text: "Reset", style: "destructive", onPress: reset },
+            ]);
+          }}
+          style={{
+            paddingVertical: 10,
+            paddingHorizontal: 14,
+            borderRadius: 10,
+            borderWidth: 1,
+            borderColor: "#ef4444",
+            backgroundColor: "#fff",
+          }}
+        >
+          <Text style={{ fontWeight: "700", color: "#b91c1c" }}>Reset Report</Text>
+        </Pressable>
       </View>
 
       {error ? <Text style={{ color: "red" }}>dynamic kWh error: {error}</Text> : null}
@@ -81,16 +99,16 @@ export default function GempReportScreen() {
         }}
       >
         <Text style={{ fontWeight: "800" }}>Header</Text>
-        <Text>Year: {report?.header?.year ?? "-"}</Text>
-        <Text>Agency: {report?.header?.agency ?? "-"}</Text>
-        <Text>Tel: {report?.header?.tel ?? "-"}</Text>
-        <Text>Address: {report?.header?.address ?? "-"}</Text>
-        <Text>Fax: {report?.header?.fax ?? "-"}</Text>
-        <Text>Region: {report?.header?.region ?? "-"}</Text>
-        <Text>Prepared by: {report?.header?.preparedBy ?? "-"}</Text>
-        <Text>Prepared by designation: {report?.header?.preparedByDesignation ?? "-"}</Text>
-        <Text>Noted by: {report?.header?.notedBy ?? "-"}</Text>
-        <Text>Noted by designation: {report?.header?.notedByDesignation ?? "-"}</Text>
+        <Text>Year: {report.header.year || "-"}</Text>
+        <Text>Agency: {report.header.agency || "-"}</Text>
+        <Text>Tel: {report.header.tel || "-"}</Text>
+        <Text>Address: {report.header.address || "-"}</Text>
+        <Text>Fax: {report.header.fax || "-"}</Text>
+        <Text>Region: {report.header.region || "-"}</Text>
+        <Text>Prepared by: {report.header.preparedBy || "-"}</Text>
+        <Text>Prepared by designation: {report.header.preparedByDesignation || "-"}</Text>
+        <Text>Noted by: {report.header.notedBy || "-"}</Text>
+        <Text>Noted by designation: {report.header.notedByDesignation || "-"}</Text>
       </View>
 
       <View
@@ -104,28 +122,12 @@ export default function GempReportScreen() {
         }}
       >
         <Text style={{ fontWeight: "800" }}>Dynamic kWh from archived power data</Text>
-        <Text style={{ color: "#4b5563" }}>
-          The GEMP table uses the current month kWh as a running sum. The hourly average
-          is shown below as extra information only.
-        </Text>
 
         <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-          <StatBox
-            label="Current month kWh sum"
-            value={safeFixed(dynamic?.current_month_kwh, 2)}
-          />
-          <StatBox
-            label="Average kWh per hour"
-            value={safeFixed(dynamic?.avg_kwh_per_hour_current_month, 4)}
-          />
-          <StatBox
-            label="Last 30 days kWh"
-            value={safeFixed(dynamic?.last_30_days_kwh, 2)}
-          />
-          <StatBox
-            label="Average daily kWh (30d)"
-            value={safeFixed(dynamic?.avg_daily_kwh_30d, 2)}
-          />
+          <StatBox label="Current month kWh sum" value={safeFixed(dynamic?.current_month_kwh, 2)} />
+          <StatBox label="Average kWh per hour" value={safeFixed(dynamic?.avg_kwh_per_hour_current_month, 4)} />
+          <StatBox label="Last 30 days kWh" value={safeFixed(dynamic?.last_30_days_kwh, 2)} />
+          <StatBox label="Average daily kWh (30d)" value={safeFixed(dynamic?.avg_daily_kwh_30d, 2)} />
         </View>
 
         <Text style={{ color: "#6b7280" }}>
@@ -177,8 +179,6 @@ export default function GempReportScreen() {
               paddingVertical: 6,
               borderBottomWidth: 1,
               borderBottomColor: "#fafafa",
-              backgroundColor:
-                r.month === dynamic?.current_month_label ? "#fef3c7" : "transparent",
             }}
           >
             <Text style={{ width: 90 }}>{r.month}</Text>
@@ -187,25 +187,18 @@ export default function GempReportScreen() {
             <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
             <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
             <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
-            <Text
-              style={{
-                width: 120,
-                fontWeight: r.month === dynamic?.current_month_label ? "800" : "400",
-              }}
-            >
-              {r.kwh || "-"}
-            </Text>
+            <Text style={{ width: 120, fontWeight: "800" }}>{r.kwh || "-"}</Text>
           </View>
         ))}
 
         <View style={{ flexDirection: "row", gap: 8, paddingTop: 10 }}>
           <Text style={{ width: 90, fontWeight: "800" }}>Average</Text>
-          <Text style={{ width: 110 }}>{stats?.avgBaseline || "-"}</Text>
+          <Text style={{ width: 110 }}>{stats.avgBaseline || "-"}</Text>
           <Text style={{ width: 130 }}>-</Text>
-          <Text style={{ width: 120 }}>{stats?.avgGrossArea || "-"}</Text>
-          <Text style={{ width: 140 }}>{stats?.avgAirconArea || "-"}</Text>
-          <Text style={{ width: 110 }}>{stats?.avgOccupants || "-"}</Text>
-          <Text style={{ width: 120 }}>{stats?.avgKwh || "-"}</Text>
+          <Text style={{ width: 120 }}>{stats.avgGrossArea || "-"}</Text>
+          <Text style={{ width: 140 }}>{stats.avgAirconArea || "-"}</Text>
+          <Text style={{ width: 110 }}>{stats.avgOccupants || "-"}</Text>
+          <Text style={{ width: 120 }}>{stats.avgKwh || "-"}</Text>
         </View>
       </View>
 
