@@ -177,7 +177,9 @@ function normalizeTimestampInput(s: string): string | null {
 
 export default function TabOneScreen() {
   const { width } = useWindowDimensions();
-  const twoCols = width >= 1100;
+
+  const chartPairsSideBySide = width >= 900;
+  const pairDirection = chartPairsSideBySide ? "row" : "column";
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
@@ -419,13 +421,19 @@ export default function TabOneScreen() {
         <Text>Refresh now</Text>
       </Pressable>
 
-      <View style={{ flexDirection: twoCols ? "row" : "column", gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Voltage (30-minute archive)"
           latestLabel="Latest voltage"
           latestValueText={formatLatestValue(latestVoltage, 2, "V")}
         >
-          <SimpleLineChart points={voltagePoints} unit="V" decimals={2} hoursBeforeLatest={3} hoursAfterLatest={2} />
+          <SimpleLineChart
+            points={voltagePoints}
+            unit="V"
+            decimals={2}
+            hoursBeforeLatest={3}
+            hoursAfterLatest={2}
+          />
         </ChartCard>
 
         <ChartCard
@@ -433,13 +441,19 @@ export default function TabOneScreen() {
           latestLabel="Latest current"
           latestValueText={formatLatestValue(latestCurrent, 3, "A")}
         >
-          <SimpleLineChart points={currentPoints} unit="A" decimals={3} hoursBeforeLatest={3} hoursAfterLatest={2} />
+          <SimpleLineChart
+            points={currentPoints}
+            unit="A"
+            decimals={3}
+            hoursBeforeLatest={3}
+            hoursAfterLatest={2}
+          />
         </ChartCard>
       </View>
 
       <DailyKwhBarCard days={14} />
 
-      <View style={{ flexDirection: twoCols ? "row" : "column", gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Intervaled Power Graph (30-minute archive)"
           latestLabel="Latest archived power"
@@ -511,7 +525,7 @@ export default function TabOneScreen() {
         </ChartCard>
       </View>
 
-      <View style={{ flexDirection: twoCols ? "row" : "column", gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
         <View style={{ flex: 1 }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
@@ -541,13 +555,19 @@ export default function TabOneScreen() {
         </View>
       </View>
 
-      <View style={{ flexDirection: twoCols ? "row" : "column", gap: 14, alignItems: "stretch" }}>
+      <View style={{ flexDirection: pairDirection, gap: 14, alignItems: "stretch" }}>
         <ChartCard
           title="Power Factor (30-minute archive)"
           latestLabel="Latest power factor"
           latestValueText={formatLatestValue(latestPF, 3)}
         >
-          <SimpleLineChart points={pfPoints} unit="PF" decimals={3} hoursBeforeLatest={3} hoursAfterLatest={2} />
+          <SimpleLineChart
+            points={pfPoints}
+            unit="PF"
+            decimals={3}
+            hoursBeforeLatest={3}
+            hoursAfterLatest={2}
+          />
         </ChartCard>
       </View>
 
