@@ -379,6 +379,7 @@ export function SimpleLineChart({
           borderColor: "#e5e7eb",
           borderRadius: 12,
           backgroundColor: "#fff",
+          width: "100%",
         }}
       />
     );
