@@ -70,7 +70,7 @@ export default function GempReportScreen() {
           onPress={() => {
             Alert.alert(
               "Reset Manual Inputs",
-              "This clears manual table values. The current month kWh remains dynamic.",
+              "This clears manual GEMP entries. The current month kWh remains from live dynamic data.",
               [
                 { text: "Cancel", style: "cancel" },
                 {
@@ -163,6 +163,9 @@ export default function GempReportScreen() {
         }}
       >
         <Text style={{ fontWeight: "800", marginBottom: 10 }}>Monthly Table</Text>
+        <Text style={{ color: "#6b7280", marginBottom: 10 }}>
+          Manual fields reset to blank, but the current month kWh remains dynamic by design.
+        </Text>
 
         <View
           style={{
