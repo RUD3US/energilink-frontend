@@ -87,6 +87,10 @@ export default function GempReportScreen() {
         <Text>Address: {report?.header?.address ?? "-"}</Text>
         <Text>Fax: {report?.header?.fax ?? "-"}</Text>
         <Text>Region: {report?.header?.region ?? "-"}</Text>
+        <Text>Prepared by: {report?.header?.preparedBy ?? "-"}</Text>
+        <Text>Prepared by designation: {report?.header?.preparedByDesignation ?? "-"}</Text>
+        <Text>Noted by: {report?.header?.notedBy ?? "-"}</Text>
+        <Text>Noted by designation: {report?.header?.notedByDesignation ?? "-"}</Text>
       </View>
 
       <View
@@ -156,7 +160,7 @@ export default function GempReportScreen() {
           }}
         >
           <Text style={{ width: 90, fontWeight: "800" }}>Month</Text>
-          <Text style={{ width: 110, fontWeight: "800" }}>Baseline</Text>
+          <Text style={{ width: 110, fontWeight: "800" }}>Baseline 2025</Text>
           <Text style={{ width: 130, fontWeight: "800" }}>Building</Text>
           <Text style={{ width: 120, fontWeight: "800" }}>Gross Area</Text>
           <Text style={{ width: 140, fontWeight: "800" }}>Aircon Area</Text>
@@ -178,8 +182,8 @@ export default function GempReportScreen() {
             }}
           >
             <Text style={{ width: 90 }}>{r.month}</Text>
-            <Text style={{ width: 110 }}>{r.baseline2016 || "-"}</Text>
-            <Text style={{ width: 130 }}>{r.buildingDescription || "-"}</Text>
+            <Text style={{ width: 110 }}>{r.baseline2025 || "-"}</Text>
+            <Text style={{ width: 130 }}>{r.buildingDesc || "-"}</Text>
             <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
             <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
             <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
