@@ -1,6 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Platform, Pressable, Text, View } from "react-native";
-import Svg, { Circle, Line, Polyline, Rect, Text as SvgText } from "react-native-svg";
+import {
+  LayoutChangeEvent,
+  Platform,
+  Pressable,
+  Text,
+  View,
+} from "react-native";
+import Svg, {
+  Circle,
+  Line,
+  Polyline,
+  Rect,
+  Text as SvgText,
+} from "react-native-svg";
 
 export type ChartPoint = { time: string; value: number };
 export type ChartNote = { id: number; time: string; text?: string };
@@ -153,15 +165,16 @@ export function SimpleLineChart({
   maxNumberedPoints?: number;
   showPointChooser?: boolean;
 }) {
-  const width = 900;
-  const padL = 60;
-  const padR = 20;
-  const padT = 16;
-  const padB = 72;
-
+  const [svgWidth, setSvgWidth] = useState(700);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
   const rafRef = useRef<number | null>(null);
   const pendingIdx = useRef<number | null>(null);
+
+  const padL = 56;
+  const padR = 16;
+  const padT = 14;
+  const padB = 64;
 
   const sorted = useMemo(() => {
     const copy = [...points];
@@ -206,11 +219,10 @@ export function SimpleLineChart({
   const minY = minYRaw - yPadding;
   const maxY = maxYRaw + yPadding;
   const spanY = Math.max(1e-9, maxY - minY);
-
   const spanT = Math.max(1, tMax - tMin);
 
   const xScaleT = (tMs: number) =>
-    padL + ((tMs - tMin) * (width - padL - padR)) / spanT;
+    padL + ((tMs - tMin) * (svgWidth - padL - padR)) / spanT;
 
   const yScale = (v: number) =>
     padT + (maxY - v) * ((height - padT - padB) / spanY);
@@ -220,7 +232,7 @@ export function SimpleLineChart({
     return visiblePoints
       .map((p, i) => `${xScaleT(timesMs[i]).toFixed(1)},${yScale(p.value).toFixed(1)}`)
       .join(" ");
-  }, [visiblePoints, timesMs, height, minY, maxY, tMin, tMax]);
+  }, [visiblePoints, timesMs, svgWidth, height, minY, maxY, tMin, tMax]);
 
   const notePositions = useMemo(() => {
     if (!notes.length) return [];
@@ -233,9 +245,9 @@ export function SimpleLineChart({
       .map((n) => ({
         id: n.id,
         time: n.time,
-        x: clamp(xScaleT(new Date(n.time).getTime()), padL, width - padR),
+        x: clamp(xScaleT(new Date(n.time).getTime()), padL, svgWidth - padR),
       }));
-  }, [notes, tMin, tMax]);
+  }, [notes, tMin, tMax, svgWidth]);
 
   const ticksMs = useMemo(() => buildTicksForWindow(tMin, tMax), [tMin, tMax]);
 
@@ -251,6 +263,14 @@ export function SimpleLineChart({
     if (visibleSelectedPointIndex >= 0) return;
     onSelectedPointInvalid?.();
   }, [selectedPointTime, visibleSelectedPointIndex, onSelectedPointInvalid]);
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   const selectableIndices = useMemo(() => {
     if (!showSelectablePoints) return [];
@@ -295,7 +315,7 @@ export function SimpleLineChart({
   function commitHover(i: number | null) {
     pendingIdx.current = i;
 
-    if (!globalThis.requestAnimationFrame) {
+    if (typeof requestAnimationFrame !== "function") {
       setHoverIdx(i);
       return;
     }
@@ -319,15 +339,15 @@ export function SimpleLineChart({
 
     if (typeof clientX !== "number" || typeof clientY !== "number") return;
 
-    const x = ((clientX - rect.left) / rect.width) * width;
+    const x = ((clientX - rect.left) / rect.width) * svgWidth;
     const y = ((clientY - rect.top) / rect.height) * height;
 
-    if (x < padL || x > width - padR || y < padT || y > height - padB) {
+    if (x < padL || x > svgWidth - padR || y < padT || y > height - padB) {
       commitHover(null);
       return;
     }
 
-    const frac = (x - padL) / (width - padL - padR);
+    const frac = (x - padL) / (svgWidth - padL - padR);
     const tHover = tMin + clamp(frac, 0, 1) * spanT;
 
     if (!timesMs.length) {
@@ -341,6 +361,13 @@ export function SimpleLineChart({
   function onWebMouseLeave() {
     if (Platform.OS !== "web") return;
     commitHover(null);
+  }
+
+  function handleChartLayout(evt: LayoutChangeEvent) {
+    const w = evt.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - svgWidth) > 1) {
+      setSvgWidth(w);
+    }
   }
 
   if (!visiblePoints.length) {
@@ -362,9 +389,9 @@ export function SimpleLineChart({
   const hx = xScaleT(timesMs[idx]);
   const hy = yScale(hp.value);
 
-  const tipW = 320;
+  const tipW = clamp(svgWidth * 0.34, 160, 260);
   const tipH = 52;
-  const tipX = Math.min(width - tipW - 8, Math.max(8, hx + 10));
+  const tipX = Math.min(svgWidth - tipW - 8, Math.max(8, hx + 10));
   const tipY = Math.max(8, hy - tipH - 8);
 
   const svgProps =
@@ -384,243 +411,251 @@ export function SimpleLineChart({
         borderRadius: 12,
         padding: 10,
         backgroundColor: "#fff",
+        width: "100%",
       }}
     >
-      <Svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} {...svgProps}>
-        <Line
-          x1={padL}
-          y1={padT}
-          x2={padL}
-          y2={height - padB}
-          stroke="#999"
-          strokeWidth={1.5}
-          pointerEvents="none"
-        />
-        <Line
-          x1={padL}
-          y1={height - padB}
-          x2={width - padR}
-          y2={height - padB}
-          stroke="#999"
-          strokeWidth={1.5}
-          pointerEvents="none"
-        />
-
-        {ticksMs.map((t) => {
-          const x = xScaleT(t);
-          const iso = new Date(t).toISOString();
-
-          return (
-            <React.Fragment key={t}>
-              <Line
-                x1={x}
-                y1={padT}
-                x2={x}
-                y2={height - padB}
-                stroke="#e5e7eb"
-                strokeWidth={1}
-                pointerEvents="none"
-              />
-              <Line
-                x1={x}
-                y1={height - padB}
-                x2={x}
-                y2={height - padB + 5}
-                stroke="#999"
-                pointerEvents="none"
-              />
-              <SvgText
-                x={x}
-                y={height - 10}
-                fontSize="10"
-                fill="#444"
-                textAnchor="middle"
-                pointerEvents="none"
-              >
-                {fmtTick(iso)}
-              </SvgText>
-            </React.Fragment>
-          );
-        })}
-
-        <SvgText
-          x={padL}
-          y={padT + 10}
-          fontSize="11"
-          fill="#444"
-          textAnchor="start"
-          pointerEvents="none"
+      <View onLayout={handleChartLayout} style={{ width: "100%" }}>
+        <Svg
+          width="100%"
+          height={height}
+          viewBox={`0 0 ${svgWidth} ${height}`}
+          {...svgProps}
         >
-          {unit}
-        </SvgText>
+          <Line
+            x1={padL}
+            y1={padT}
+            x2={padL}
+            y2={height - padB}
+            stroke="#999"
+            strokeWidth={1.5}
+            pointerEvents="none"
+          />
+          <Line
+            x1={padL}
+            y1={height - padB}
+            x2={svgWidth - padR}
+            y2={height - padB}
+            stroke="#999"
+            strokeWidth={1.5}
+            pointerEvents="none"
+          />
 
-        <Polyline
-          points={poly}
-          fill="none"
-          stroke="#111"
-          strokeWidth={6}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-          pointerEvents="none"
-        />
+          {ticksMs.map((t) => {
+            const x = xScaleT(t);
+            const iso = new Date(t).toISOString();
 
-        {notePositions.map((n) => {
-          const isSelected = selectedNoteId === n.id;
-          const noteHitProps = getSvgPressProps(() => onSelectNoteId?.(n.id));
-
-          return (
-            <React.Fragment key={n.id}>
-              <Line
-                x1={n.x}
-                y1={padT}
-                x2={n.x}
-                y2={height - padB}
-                stroke="#000"
-                opacity={0.001}
-                strokeWidth={18}
-                pointerEvents="stroke"
-                {...noteHitProps}
-              />
-
-              <Line
-                x1={n.x}
-                y1={padT}
-                x2={n.x}
-                y2={height - padB}
-                stroke="#d97706"
-                strokeWidth={isSelected ? 5 : 3}
-                opacity={1}
-                pointerEvents="none"
-              />
-
-              {isSelected ? (
+            return (
+              <React.Fragment key={t}>
+                <Line
+                  x1={x}
+                  y1={padT}
+                  x2={x}
+                  y2={height - padB}
+                  stroke="#e5e7eb"
+                  strokeWidth={1}
+                  pointerEvents="none"
+                />
+                <Line
+                  x1={x}
+                  y1={height - padB}
+                  x2={x}
+                  y2={height - padB + 5}
+                  stroke="#999"
+                  pointerEvents="none"
+                />
                 <SvgText
-                  x={n.x}
-                  y={height - 32}
+                  x={x}
+                  y={height - 10}
                   fontSize="10"
-                  fill="#b45309"
+                  fill="#444"
                   textAnchor="middle"
                   pointerEvents="none"
                 >
-                  {fmtTick(n.time)}
+                  {fmtTick(iso)}
                 </SvgText>
-              ) : null}
-            </React.Fragment>
-          );
-        })}
+              </React.Fragment>
+            );
+          })}
 
-        {showSelectablePoints
-          ? selectablePoints.map((sp) => {
-              const pointPressProps = getSvgPressProps(() => onSelectPoint?.(sp.point));
+          <SvgText
+            x={padL}
+            y={padT + 10}
+            fontSize="11"
+            fill="#444"
+            textAnchor="start"
+            pointerEvents="none"
+          >
+            {unit}
+          </SvgText>
 
-              if (numberedPointSelection) {
-                return (
-                  <React.Fragment key={`${sp.point.time}-${sp.pickerNumber}`}>
-                    <Circle
-                      cx={sp.x}
-                      cy={sp.y}
-                      r={16}
-                      fill="#000"
-                      opacity={0.001}
-                      {...pointPressProps}
-                    />
-                    <Circle
-                      cx={sp.x}
-                      cy={sp.y}
-                      r={sp.isSelected ? 12 : 10}
-                      fill={sp.isSelected ? "#dc2626" : "#111"}
-                      stroke="#fff"
-                      strokeWidth={1.5}
-                      pointerEvents="none"
-                    />
-                    <SvgText
-                      x={sp.x}
-                      y={sp.y + 4}
-                      fontSize={sp.pickerNumber >= 10 ? "8" : "10"}
-                      fill="#fff"
-                      fontWeight="700"
-                      textAnchor="middle"
-                      pointerEvents="none"
-                    >
-                      {String(sp.pickerNumber)}
-                    </SvgText>
-                  </React.Fragment>
-                );
-              }
+          <Polyline
+            points={poly}
+            fill="none"
+            stroke="#111"
+            strokeWidth={4}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            pointerEvents="none"
+          />
 
-              if (Platform.OS === "web") {
-                return (
-                  <React.Fragment key={`${sp.point.time}-${sp.pointIndex}`}>
-                    <Circle
-                      cx={sp.x}
-                      cy={sp.y}
-                      r={12}
-                      fill="#000"
-                      opacity={0.001}
-                      {...pointPressProps}
-                    />
-                    <Circle
-                      cx={sp.x}
-                      cy={sp.y}
-                      r={sp.isSelected ? 6 : 4}
-                      fill={sp.isSelected ? "#dc2626" : "#111"}
-                      pointerEvents="none"
-                    />
-                  </React.Fragment>
-                );
-              }
+          {notePositions.map((n) => {
+            const isSelected = selectedNoteId === n.id;
+            const noteHitProps = getSvgPressProps(() => onSelectNoteId?.(n.id));
 
-              return (
-                <Circle
-                  key={`${sp.point.time}-${sp.pointIndex}`}
-                  cx={sp.x}
-                  cy={sp.y}
-                  r={sp.isSelected ? 6 : 4}
-                  fill={sp.isSelected ? "#dc2626" : "#111"}
-                  {...pointPressProps}
+            return (
+              <React.Fragment key={n.id}>
+                <Line
+                  x1={n.x}
+                  y1={padT}
+                  x2={n.x}
+                  y2={height - padB}
+                  stroke="#000"
+                  opacity={0.001}
+                  strokeWidth={18}
+                  pointerEvents="stroke"
+                  {...noteHitProps}
                 />
-              );
-            })
-          : null}
 
-        <Line
-          x1={hx}
-          y1={padT}
-          x2={hx}
-          y2={height - padB}
-          stroke="#666"
-          strokeWidth={2}
-          pointerEvents="none"
-        />
-        <Line
-          x1={padL}
-          y1={hy}
-          x2={width - padR}
-          y2={hy}
-          stroke="#666"
-          strokeWidth={2}
-          pointerEvents="none"
-        />
-        <Circle cx={hx} cy={hy} r={7} fill="#111" pointerEvents="none" />
+                <Line
+                  x1={n.x}
+                  y1={padT}
+                  x2={n.x}
+                  y2={height - padB}
+                  stroke="#d97706"
+                  strokeWidth={isSelected ? 4 : 2}
+                  opacity={1}
+                  pointerEvents="none"
+                />
 
-        <Rect
-          x={tipX}
-          y={tipY}
-          width={tipW}
-          height={tipH}
-          rx={8}
-          ry={8}
-          fill="#111"
-          opacity={0.94}
-          pointerEvents="none"
-        />
-        <SvgText x={tipX + 10} y={tipY + 20} fontSize="12" fill="#fff" pointerEvents="none">
-          {fmtTime(hp.time)}
-        </SvgText>
-        <SvgText x={tipX + 10} y={tipY + 40} fontSize="12" fill="#fff" pointerEvents="none">
-          value: {hp.value.toFixed(decimals)} {unit}
-        </SvgText>
-      </Svg>
+                {isSelected ? (
+                  <SvgText
+                    x={n.x}
+                    y={height - 32}
+                    fontSize="10"
+                    fill="#b45309"
+                    textAnchor="middle"
+                    pointerEvents="none"
+                  >
+                    {fmtTick(n.time)}
+                  </SvgText>
+                ) : null}
+              </React.Fragment>
+            );
+          })}
+
+          {showSelectablePoints
+            ? selectablePoints.map((sp) => {
+                const pointPressProps = getSvgPressProps(() => onSelectPoint?.(sp.point));
+
+                if (numberedPointSelection) {
+                  return (
+                    <React.Fragment key={`${sp.point.time}-${sp.pickerNumber}`}>
+                      <Circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={14}
+                        fill="#000"
+                        opacity={0.001}
+                        {...pointPressProps}
+                      />
+                      <Circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={sp.isSelected ? 11 : 9}
+                        fill={sp.isSelected ? "#dc2626" : "#111"}
+                        stroke="#fff"
+                        strokeWidth={1.5}
+                        pointerEvents="none"
+                      />
+                      <SvgText
+                        x={sp.x}
+                        y={sp.y + 4}
+                        fontSize={sp.pickerNumber >= 10 ? "8" : "10"}
+                        fill="#fff"
+                        fontWeight="700"
+                        textAnchor="middle"
+                        pointerEvents="none"
+                      >
+                        {String(sp.pickerNumber)}
+                      </SvgText>
+                    </React.Fragment>
+                  );
+                }
+
+                if (Platform.OS === "web") {
+                  return (
+                    <React.Fragment key={`${sp.point.time}-${sp.pointIndex}`}>
+                      <Circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={12}
+                        fill="#000"
+                        opacity={0.001}
+                        {...pointPressProps}
+                      />
+                      <Circle
+                        cx={sp.x}
+                        cy={sp.y}
+                        r={sp.isSelected ? 6 : 4}
+                        fill={sp.isSelected ? "#dc2626" : "#111"}
+                        pointerEvents="none"
+                      />
+                    </React.Fragment>
+                  );
+                }
+
+                return (
+                  <Circle
+                    key={`${sp.point.time}-${sp.pointIndex}`}
+                    cx={sp.x}
+                    cy={sp.y}
+                    r={sp.isSelected ? 6 : 4}
+                    fill={sp.isSelected ? "#dc2626" : "#111"}
+                    {...pointPressProps}
+                  />
+                );
+              })
+            : null}
+
+          <Line
+            x1={hx}
+            y1={padT}
+            x2={hx}
+            y2={height - padB}
+            stroke="#666"
+            strokeWidth={2}
+            pointerEvents="none"
+          />
+          <Line
+            x1={padL}
+            y1={hy}
+            x2={svgWidth - padR}
+            y2={hy}
+            stroke="#666"
+            strokeWidth={2}
+            pointerEvents="none"
+          />
+          <Circle cx={hx} cy={hy} r={6} fill="#111" pointerEvents="none" />
+
+          <Rect
+            x={tipX}
+            y={tipY}
+            width={tipW}
+            height={tipH}
+            rx={8}
+            ry={8}
+            fill="#111"
+            opacity={0.94}
+            pointerEvents="none"
+          />
+          <SvgText x={tipX + 10} y={tipY + 20} fontSize="11" fill="#fff" pointerEvents="none">
+            {fmtTime(hp.time)}
+          </SvgText>
+          <SvgText x={tipX + 10} y={tipY + 40} fontSize="11" fill="#fff" pointerEvents="none">
+            value: {hp.value.toFixed(decimals)} {unit}
+          </SvgText>
+        </Svg>
+      </View>
 
       {showPointChooser && numberedPointSelection && selectablePoints.length ? (
         <View style={{ marginTop: 10, gap: 8 }}>
