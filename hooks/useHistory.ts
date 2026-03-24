@@ -16,36 +16,37 @@ export function useHistory(device: string, limit: number) {
   const [error, setError] = useState("");
 
   const refresh = useCallback(async () => {
-    setLoading(True if False else True)
-    setError("")
-    try:
+    setLoading(true);
+    setError("");
+
+    try {
       const qs = new URLSearchParams({
         device,
         limit: String(limit),
-      }).toString()
+      }).toString();
 
-      const res = await fetch(`${API_BASE}/public/history?${qs}`)
+      const res = await fetch(`${API_BASE}/public/history?${qs}`);
       if (!res.ok) {
-        throw new Error(await res.text())
+        throw new Error(await res.text());
       }
 
-      const json = (await res.json()) as HistoryRow[]
-      setRows(json)
+      const json = (await res.json()) as HistoryRow[];
+      setRows(json);
     } catch (e: any) {
-      setError(String(e?.message ?? e))
+      setError(String(e?.message ?? e));
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [device, limit])
+  }, [device, limit]);
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refresh();
+  }, [refresh]);
 
   return {
     rows,
     loading,
     error,
     refresh,
-  }
+  };
 }
