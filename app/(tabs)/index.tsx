@@ -184,10 +184,6 @@ export default function TabOneScreen() {
   const showPairsSideBySide = width >= 760;
   const pairDirection = showPairsSideBySide ? "row" : "column";
 
-  const pairCardWidth = showPairsSideBySide
-    ? (width - PAGE_PADDING * 2 - CARD_GAP) / 2
-    : width - PAGE_PADDING * 2;
-
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
   const powerRT = useRealtime(DEFAULT_DEVICE, FIELD_POWER);
@@ -428,8 +424,15 @@ export default function TabOneScreen() {
         <Text>Refresh now</Text>
       </Pressable>
 
-      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
-        <View style={{ width: pairCardWidth }}>
+      <View
+        style={{
+          flexDirection: pairDirection,
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          flexWrap: "nowrap",
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
             title="Voltage (30-minute archive)"
             latestLabel="Latest voltage"
@@ -447,7 +450,7 @@ export default function TabOneScreen() {
           </ChartCard>
         </View>
 
-        <View style={{ width: pairCardWidth }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
             title="Current (30-minute archive)"
             latestLabel="Latest current"
@@ -468,8 +471,15 @@ export default function TabOneScreen() {
 
       <DailyKwhBarCard days={14} />
 
-      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
-        <View style={{ width: pairCardWidth }}>
+      <View
+        style={{
+          flexDirection: pairDirection,
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          flexWrap: "nowrap",
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
             title="Intervaled Power Graph (30-minute archive)"
             latestLabel="Latest archived power"
@@ -507,7 +517,7 @@ export default function TabOneScreen() {
           </ChartCard>
         </View>
 
-        <View style={{ width: pairCardWidth }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
             title="Realtime Power Graph (30 seconds)"
             latestLabel="Latest realtime power"
@@ -546,8 +556,15 @@ export default function TabOneScreen() {
         </View>
       </View>
 
-      <View style={{ flexDirection: pairDirection, gap: CARD_GAP, alignItems: "flex-start" }}>
-        <View style={{ width: pairCardWidth }}>
+      <View
+        style={{
+          flexDirection: pairDirection,
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          flexWrap: "nowrap",
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
             selectedNoteId={selectedIntervaledPowerNoteId}
@@ -561,7 +578,7 @@ export default function TabOneScreen() {
           />
         </View>
 
-        <View style={{ width: pairCardWidth }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <NotesBelowGraph
             notes={realtimePowerNotesBelow}
             selectedNoteId={selectedRealtimePowerNoteId}
