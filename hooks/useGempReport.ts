@@ -67,7 +67,7 @@ type GempStoreState = {
   version: number;
 };
 
-const STORAGE_KEY = "gemp-report-form-v6";
+const STORAGE_KEY = "gemp-report-form-v7";
 
 const MONTHS = [
   "January",
@@ -209,7 +209,6 @@ function getSnapshot() {
 
 function ensureInitialized() {
   if (store.initialized) return;
-
   store = {
     ...store,
     form: loadFormFromStorage(),
@@ -241,7 +240,6 @@ async function refreshDynamicInternal() {
     }
 
     const json = (await res.json()) as GempDynamic;
-
     setStore({
       dynamic: json,
       loading: false,
@@ -331,17 +329,17 @@ export function useGempReport() {
         ? state.dynamic.current_month_kwh.toFixed(2)
         : "";
 
+    const derivedRows = state.form.rows.map((row) => {
+      const isCurrentMonth = row.month === currentMonth;
+      return {
+        ...row,
+        kwh: isCurrentMonth ? dynamicCurrentMonthKwh : row.kwh || "",
+      };
+    });
+
     return {
       header: { ...state.form.header },
-      rows: state.form.rows.map((row) => {
-        if (row.month === currentMonth) {
-          return {
-            ...row,
-            kwh: dynamicCurrentMonthKwh || row.kwh || "",
-          };
-        }
-        return { ...row };
-      }),
+      rows: derivedRows,
     };
   }, [state.form, state.dynamic, state.version]);
 
