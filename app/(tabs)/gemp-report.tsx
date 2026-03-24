@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { ReportSchedulerCard } from "../../components/ReportSchedulerCard";
 import { useGempReport } from "../../hooks/useGempReport";
 import { exportGempToDocx } from "../../lib/gempExport";
@@ -41,6 +41,30 @@ function StatBox({
   );
 }
 
+async function confirmAction(title: string, message: string) {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") {
+      return window.confirm(`${title}\n\n${message}`);
+    }
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    Alert.alert(title, message, [
+      {
+        text: "Cancel",
+        style: "cancel",
+        onPress: () => resolve(false),
+      },
+      {
+        text: "Continue",
+        style: "destructive",
+        onPress: () => resolve(true),
+      },
+    ]);
+  });
+}
+
 export default function GempReportScreen() {
   const { report, stats, dynamic, loading, error, refresh, reset, version } = useGempReport();
   const rows = useMemo(() => report.rows ?? [], [report.rows, version]);
@@ -67,19 +91,14 @@ export default function GempReportScreen() {
         </Pressable>
 
         <Pressable
-          onPress={() => {
-            Alert.alert(
+          onPress={async () => {
+            const ok = await confirmAction(
               "Reset Manual Inputs",
-              "This clears manual GEMP entries. The current month kWh remains from live dynamic data.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Reset",
-                  style: "destructive",
-                  onPress: () => reset(),
-                },
-              ]
+              "This clears manual GEMP entries. The current month kWh remains from live dynamic data."
             );
+            if (ok) {
+              reset();
+            }
           }}
           style={{
             paddingVertical: 10,
