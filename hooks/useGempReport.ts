@@ -68,7 +68,7 @@ type GempStoreState = {
   initialized: boolean;
 };
 
-const STORAGE_KEY = "gemp-report-form-v3";
+const STORAGE_KEY = "gemp-report-form-v4";
 
 const MONTHS = [
   "January",
@@ -180,7 +180,7 @@ let store: GempStoreState = {
 const listeners = new Set<() => void>();
 
 function emit() {
-  listeners.forEach((l) => l());
+  listeners.forEach((listener) => listener());
 }
 
 function setStore(partial: Partial<GempStoreState>) {
@@ -199,6 +199,7 @@ function getSnapshot() {
 
 function ensureInitialized() {
   if (store.initialized) return;
+
   store = {
     ...store,
     form: loadFormFromStorage(),
@@ -221,7 +222,9 @@ async function refreshDynamicInternal() {
     }).toString();
 
     const res = await fetch(`${API_BASE}/reports/gemp/dynamic?${qs}`);
-    if (!res.ok) throw new Error(await res.text());
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
 
     const json = (await res.json()) as GempDynamic;
     setStore({
@@ -294,6 +297,7 @@ export function useGempReport() {
 
   const reset = useCallback(() => {
     const next = createDefaultForm();
+
     if (typeof window !== "undefined") {
       try {
         window.localStorage.removeItem(STORAGE_KEY);
@@ -301,7 +305,15 @@ export function useGempReport() {
         // ignore
       }
     }
-    setStore({ form: next });
+
+    setStore({
+      form: next,
+      dynamic: null,
+      error: "",
+      loading: false,
+    });
+
+    refreshDynamicInternal();
   }, []);
 
   const refresh = useCallback(async () => {
@@ -309,28 +321,11 @@ export function useGempReport() {
   }, []);
 
   const report = useMemo(() => {
-    const currentMonth =
-      state.dynamic?.current_month_label ?? MONTHS[new Date().getMonth()];
-    const dynamicCurrentMonthKwh =
-      state.dynamic?.current_month_kwh != null
-        ? state.dynamic.current_month_kwh.toFixed(2)
-        : "";
-
-    const rows = state.form.rows.map((row) => {
-      if (row.month === currentMonth) {
-        return {
-          ...row,
-          kwh: dynamicCurrentMonthKwh || row.kwh || "",
-        };
-      }
-      return row;
-    });
-
     return {
       header: state.form.header,
-      rows,
+      rows: state.form.rows.map((row) => ({ ...row })),
     };
-  }, [state.form, state.dynamic]);
+  }, [state.form]);
 
   const stats = useMemo<GempStats>(() => {
     return {
