@@ -1,8 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Image,
-  Linking,
   Pressable,
   ScrollView,
   Text,
@@ -18,7 +16,6 @@ import {
   FIELD_POWER,
   FIELD_POWER_FACTOR,
   FIELD_VOLTAGE,
-  GRAFANA_PUBLIC_DASHBOARD_URL,
   METRIC_POWER,
 } from "../../config";
 
@@ -33,8 +30,6 @@ import DailyKwhBarCard from "../../components/DailyKwhBarCard";
 import MonitoringSummaryRow from "../../components/MonitoringSummaryRow";
 import { NotesBelowGraph } from "../../components/NotesBelowGraph";
 import { SimpleLineChart } from "../../components/SimpleLineChart";
-
-const ENERGY_LOGO = require("../../assets/energy.jpg");
 
 type Point = {
   time: string;
@@ -230,8 +225,14 @@ export default function TabOneScreen() {
     [powerNotesQ.notes]
   );
 
-  const intervaledPowerNotesInView = useNotesInWindow(intervaledPowerPoints, intervaledPowerNotesRaw);
-  const realtimePowerNotesInView = useNotesInWindow(realtimePowerPoints, realtimePowerNotesRaw);
+  const intervaledPowerNotesInView = useNotesInWindow(
+    intervaledPowerPoints,
+    intervaledPowerNotesRaw
+  );
+  const realtimePowerNotesInView = useNotesInWindow(
+    realtimePowerPoints,
+    realtimePowerNotesRaw
+  );
 
   const { token, busy, status, doLogin, doSignup, logout } = useAuth();
 
@@ -274,12 +275,22 @@ export default function TabOneScreen() {
   const latestPF = latestValue(pfPoints);
 
   const intervaledPowerChartNotes = useMemo<ChartNote[]>(
-    () => intervaledPowerNotesInView.map((n: any) => ({ id: n.id, time: n.time, text: n.text })),
+    () =>
+      intervaledPowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+      })),
     [intervaledPowerNotesInView]
   );
 
   const realtimePowerChartNotes = useMemo<ChartNote[]>(
-    () => realtimePowerNotesInView.map((n: any) => ({ id: n.id, time: n.time, text: n.text })),
+    () =>
+      realtimePowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+      })),
     [realtimePowerNotesInView]
   );
 
@@ -316,21 +327,15 @@ export default function TabOneScreen() {
   }
 
   function getActivePoint() {
-    return noteMode === "intervaled" ? selectedIntervaledPowerPoint : selectedRealtimePowerPoint;
+    return noteMode === "intervaled"
+      ? selectedIntervaledPowerPoint
+      : selectedRealtimePowerPoint;
   }
 
   function handleManualTimestampChange(value: string) {
     setManualTimestamp(value);
     setSelectedIntervaledPowerPoint(null);
     setSelectedRealtimePowerPoint(null);
-  }
-
-  async function openGrafanaDashboard() {
-    try {
-      await Linking.openURL(GRAFANA_PUBLIC_DASHBOARD_URL);
-    } catch (e: any) {
-      Alert.alert("Open dashboard failed", String(e?.message ?? e));
-    }
   }
 
   async function addNote() {
@@ -408,16 +413,9 @@ export default function TabOneScreen() {
           marginBottom: 4,
         }}
       >
-        <Image
-          source={ENERGY_LOGO}
-          style={{
-            width: 120,
-            height: 120,
-            resizeMode: "contain",
-            borderRadius: 16,
-          }}
-        />
-        <Text style={{ fontSize: 22, fontWeight: "700" }}>EnergiLink Live Monitoring</Text>
+        <Text style={{ fontSize: 22, fontWeight: "700" }}>
+          EnergiLink Live Monitoring
+        </Text>
         <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
       </View>
 
@@ -793,39 +791,6 @@ export default function TabOneScreen() {
           </View>
         </View>
       ) : null}
-
-      <View
-        style={{
-          gap: 8,
-          padding: 12,
-          borderWidth: 1,
-          borderColor: "#e5e7eb",
-          borderRadius: 14,
-          backgroundColor: "#fff",
-        }}
-      >
-        <Text style={{ fontWeight: "700" }}>Grafana public dashboard</Text>
-        <Text style={{ color: "#555" }}>
-          This opens the single Grafana public dashboard that contains all of your Grafana panels.
-        </Text>
-
-        <Pressable
-          onPress={openGrafanaDashboard}
-          style={{
-            padding: 12,
-            borderRadius: 12,
-            backgroundColor: "#111",
-            alignItems: "center",
-            alignSelf: "flex-start",
-          }}
-        >
-          <Text style={{ color: "#fff", fontWeight: "700" }}>Open Grafana dashboard</Text>
-        </Pressable>
-
-        <Text selectable style={{ color: "#2563eb" }}>
-          {GRAFANA_PUBLIC_DASHBOARD_URL}
-        </Text>
-      </View>
     </ScrollView>
   );
 }
