@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { Alert, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { ReportSchedulerCard } from "../../components/ReportSchedulerCard";
 import { useGempReport } from "../../hooks/useGempReport";
-import { exportGempToDocx } from "../../lib/gempExport";
+import { exportGempToPdf } from "../../lib/gempExport";
 
 function safeFixed(value: unknown, digits = 2) {
   const n =
@@ -157,7 +157,10 @@ export default function GempReportScreen() {
             value={safeFixed(dynamic?.avg_kwh_per_hour_current_month, 4)}
           />
           <StatBox label="Last 30 days kWh" value={safeFixed(dynamic?.last_30_days_kwh, 2)} />
-          <StatBox label="Average daily kWh (30d)" value={safeFixed(dynamic?.avg_daily_kwh_30d, 2)} />
+          <StatBox
+            label="Average daily kWh (30d)"
+            value={safeFixed(dynamic?.avg_daily_kwh_30d, 2)}
+          />
         </View>
 
         <Text style={{ color: "#6b7280" }}>
@@ -186,67 +189,71 @@ export default function GempReportScreen() {
           Manual fields reset to blank, but the current month kWh remains dynamic by design.
         </Text>
 
-        <View
-          style={{
-            flexDirection: "row",
-            gap: 8,
-            paddingBottom: 8,
-            borderBottomWidth: 1,
-            borderBottomColor: "#eee",
-          }}
-        >
-          <Text style={{ width: 90, fontWeight: "800" }}>Month</Text>
-          <Text style={{ width: 110, fontWeight: "800" }}>Baseline 2025</Text>
-          <Text style={{ width: 130, fontWeight: "800" }}>Building</Text>
-          <Text style={{ width: 120, fontWeight: "800" }}>Gross Area</Text>
-          <Text style={{ width: 140, fontWeight: "800" }}>Aircon Area</Text>
-          <Text style={{ width: 110, fontWeight: "800" }}>Occupants</Text>
-          <Text style={{ width: 120, fontWeight: "800" }}>kWh</Text>
-        </View>
-
-        {rows.map((r) => {
-          const isCurrentMonth = r.month === dynamic?.current_month_label;
-
-          return (
+        <ScrollView horizontal>
+          <View style={{ minWidth: 940 }}>
             <View
-              key={`${version}-${r.month}`}
               style={{
                 flexDirection: "row",
                 gap: 8,
-                paddingVertical: 6,
+                paddingBottom: 8,
                 borderBottomWidth: 1,
-                borderBottomColor: "#fafafa",
-                backgroundColor: isCurrentMonth ? "#fef3c7" : "transparent",
+                borderBottomColor: "#eee",
               }}
             >
-              <Text style={{ width: 90 }}>{r.month}</Text>
-              <Text style={{ width: 110 }}>{r.baseline2025 || "-"}</Text>
-              <Text style={{ width: 130 }}>{r.buildingDesc || "-"}</Text>
-              <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
-              <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
-              <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
-              <Text style={{ width: 120, fontWeight: isCurrentMonth ? "800" : "400" }}>
-                {r.kwh || "-"}
-              </Text>
+              <Text style={{ width: 90, fontWeight: "800" }}>Month</Text>
+              <Text style={{ width: 140, fontWeight: "800" }}>Baseline kWh in 2025</Text>
+              <Text style={{ width: 180, fontWeight: "800" }}>Building Description</Text>
+              <Text style={{ width: 120, fontWeight: "800" }}>Gross Area</Text>
+              <Text style={{ width: 140, fontWeight: "800" }}>Aircon Area</Text>
+              <Text style={{ width: 110, fontWeight: "800" }}>Occupants</Text>
+              <Text style={{ width: 140, fontWeight: "800" }}>Monthly kWh</Text>
             </View>
-          );
-        })}
 
-        <View style={{ flexDirection: "row", gap: 8, paddingTop: 10 }}>
-          <Text style={{ width: 90, fontWeight: "800" }}>Average</Text>
-          <Text style={{ width: 110 }}>{stats.avgBaseline || "-"}</Text>
-          <Text style={{ width: 130 }}>-</Text>
-          <Text style={{ width: 120 }}>{stats.avgGrossArea || "-"}</Text>
-          <Text style={{ width: 140 }}>{stats.avgAirconArea || "-"}</Text>
-          <Text style={{ width: 110 }}>{stats.avgOccupants || "-"}</Text>
-          <Text style={{ width: 120 }}>{stats.avgKwh || "-"}</Text>
-        </View>
+            {rows.map((r) => {
+              const isCurrentMonth = r.month === dynamic?.current_month_label;
+
+              return (
+                <View
+                  key={`${version}-${r.month}`}
+                  style={{
+                    flexDirection: "row",
+                    gap: 8,
+                    paddingVertical: 6,
+                    borderBottomWidth: 1,
+                    borderBottomColor: "#fafafa",
+                    backgroundColor: isCurrentMonth ? "#fef3c7" : "transparent",
+                  }}
+                >
+                  <Text style={{ width: 90 }}>{r.month}</Text>
+                  <Text style={{ width: 140 }}>{r.baseline2025 || "-"}</Text>
+                  <Text style={{ width: 180 }}>{r.buildingDesc || "-"}</Text>
+                  <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
+                  <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
+                  <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
+                  <Text style={{ width: 140, fontWeight: isCurrentMonth ? "800" : "400" }}>
+                    {r.kwh || "-"}
+                  </Text>
+                </View>
+              );
+            })}
+
+            <View style={{ flexDirection: "row", gap: 8, paddingTop: 10 }}>
+              <Text style={{ width: 90, fontWeight: "800" }}>Average</Text>
+              <Text style={{ width: 140 }}>{stats.avgBaseline || "-"}</Text>
+              <Text style={{ width: 180 }}>-</Text>
+              <Text style={{ width: 120 }}>{stats.avgGrossArea || "-"}</Text>
+              <Text style={{ width: 140 }}>{stats.avgAirconArea || "-"}</Text>
+              <Text style={{ width: 110 }}>{stats.avgOccupants || "-"}</Text>
+              <Text style={{ width: 140 }}>{stats.avgKwh || "-"}</Text>
+            </View>
+          </View>
+        </ScrollView>
       </View>
 
       <Pressable
         onPress={async () => {
           try {
-            await exportGempToDocx({
+            await exportGempToPdf({
               header: report.header,
               rows: report.rows,
               stats,
@@ -262,7 +269,7 @@ export default function GempReportScreen() {
           alignItems: "center",
         }}
       >
-        <Text style={{ color: "#fff", fontWeight: "900" }}>Export to DOCX (Annex A)</Text>
+        <Text style={{ color: "#fff", fontWeight: "900" }}>Export to PDF (Annex A)</Text>
       </Pressable>
 
       <ReportSchedulerCard />
