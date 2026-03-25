@@ -119,15 +119,11 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   const powerRT = useRealtime(device, FIELD_POWER);
 
-  const refresh = () => {
+  useEffect(() => {
     const estimatedDailyPoints = Math.max(days * 48, 500);
     const estimatedMonthlyPoints = Math.max(months * 31 * 48, 500);
     const estimatedPoints = Math.max(estimatedDailyPoints, estimatedMonthlyPoints);
     powerRT.refresh(String(estimatedPoints));
-  };
-
-  useEffect(() => {
-    refresh();
   }, [days, months, device]);
 
   const sorted = useMemo(() => {
@@ -261,7 +257,12 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     monthlyData,
     dailySummary,
     monthlySummary,
-    refresh,
+    refresh: () => {
+      const estimatedDailyPoints = Math.max(days * 48, 500);
+      const estimatedMonthlyPoints = Math.max(months * 31 * 48, 500);
+      const estimatedPoints = Math.max(estimatedDailyPoints, estimatedMonthlyPoints);
+      powerRT.refresh(String(estimatedPoints));
+    },
     loading: powerRT.loading,
     error: powerRT.error,
   };
