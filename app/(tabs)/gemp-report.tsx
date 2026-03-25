@@ -190,7 +190,7 @@ export default function GempReportScreen() {
         </Text>
 
         <ScrollView horizontal>
-          <View style={{ minWidth: 940 }}>
+          <View style={{ minWidth: 980 }}>
             <View
               style={{
                 flexDirection: "row",
@@ -225,13 +225,29 @@ export default function GempReportScreen() {
                   }}
                 >
                   <Text style={{ width: 90 }}>{r.month}</Text>
-                  <Text style={{ width: 140 }}>{r.baseline2025 || "-"}</Text>
+                  <Text style={{ width: 140 }}>
+                    {r.baseline2025 !== undefined && r.baseline2025 !== null && r.baseline2025 !== ""
+                      ? String(r.baseline2025)
+                      : "-"}
+                  </Text>
                   <Text style={{ width: 180 }}>{r.buildingDesc || "-"}</Text>
-                  <Text style={{ width: 120 }}>{r.grossArea || "-"}</Text>
-                  <Text style={{ width: 140 }}>{r.airconArea || "-"}</Text>
-                  <Text style={{ width: 110 }}>{r.occupants || "-"}</Text>
+                  <Text style={{ width: 120 }}>
+                    {r.grossArea !== undefined && r.grossArea !== null && r.grossArea !== ""
+                      ? String(r.grossArea)
+                      : "-"}
+                  </Text>
+                  <Text style={{ width: 140 }}>
+                    {r.airconArea !== undefined && r.airconArea !== null && r.airconArea !== ""
+                      ? String(r.airconArea)
+                      : "-"}
+                  </Text>
+                  <Text style={{ width: 110 }}>
+                    {r.occupants !== undefined && r.occupants !== null && r.occupants !== ""
+                      ? String(r.occupants)
+                      : "-"}
+                  </Text>
                   <Text style={{ width: 140, fontWeight: isCurrentMonth ? "800" : "400" }}>
-                    {r.kwh || "-"}
+                    {r.kwh !== undefined && r.kwh !== null && r.kwh !== "" ? String(r.kwh) : "-"}
                   </Text>
                 </View>
               );
@@ -239,12 +255,32 @@ export default function GempReportScreen() {
 
             <View style={{ flexDirection: "row", gap: 8, paddingTop: 10 }}>
               <Text style={{ width: 90, fontWeight: "800" }}>Average</Text>
-              <Text style={{ width: 140 }}>{stats.avgBaseline || "-"}</Text>
+              <Text style={{ width: 140 }}>
+                {stats.avgBaseline !== undefined && stats.avgBaseline !== null && stats.avgBaseline !== ""
+                  ? String(stats.avgBaseline)
+                  : "-"}
+              </Text>
               <Text style={{ width: 180 }}>-</Text>
-              <Text style={{ width: 120 }}>{stats.avgGrossArea || "-"}</Text>
-              <Text style={{ width: 140 }}>{stats.avgAirconArea || "-"}</Text>
-              <Text style={{ width: 110 }}>{stats.avgOccupants || "-"}</Text>
-              <Text style={{ width: 140 }}>{stats.avgKwh || "-"}</Text>
+              <Text style={{ width: 120 }}>
+                {stats.avgGrossArea !== undefined && stats.avgGrossArea !== null && stats.avgGrossArea !== ""
+                  ? String(stats.avgGrossArea)
+                  : "-"}
+              </Text>
+              <Text style={{ width: 140 }}>
+                {stats.avgAirconArea !== undefined && stats.avgAirconArea !== null && stats.avgAirconArea !== ""
+                  ? String(stats.avgAirconArea)
+                  : "-"}
+              </Text>
+              <Text style={{ width: 110 }}>
+                {stats.avgOccupants !== undefined && stats.avgOccupants !== null && stats.avgOccupants !== ""
+                  ? String(stats.avgOccupants)
+                  : "-"}
+              </Text>
+              <Text style={{ width: 140 }}>
+                {stats.avgKwh !== undefined && stats.avgKwh !== null && stats.avgKwh !== ""
+                  ? String(stats.avgKwh)
+                  : "-"}
+              </Text>
             </View>
           </View>
         </ScrollView>
