@@ -1,14 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { Alert, Pressable, Text, TextInput, View } from "react-native";
 import {
-    addReportRecipient,
-    deleteReportRecipient,
-    getReportRecipients,
-    getReportSchedule,
-    ReportRecipient,
-    ReportSchedule,
-    sendTestGempReport,
-    updateReportSchedule,
+  addReportRecipient,
+  deleteReportRecipient,
+  getReportRecipients,
+  getReportSchedule,
+  ReportRecipient,
+  ReportSchedule,
+  sendTestGempReport,
+  updateReportSchedule,
 } from "../lib/api";
 
 const WEEKDAYS = [
@@ -33,6 +33,7 @@ export function ReportSchedulerCard() {
     enabled: 0,
     updated_at: "",
   });
+  const [dayOfMonthInput, setDayOfMonthInput] = useState("1");
   const [busy, setBusy] = useState(false);
 
   async function loadAll() {
@@ -41,6 +42,7 @@ export function ReportSchedulerCard() {
       const [r, s] = await Promise.all([getReportRecipients(), getReportSchedule()]);
       setRecipients(r);
       setSchedule(s);
+      setDayOfMonthInput(s.day_of_month != null ? String(s.day_of_month) : "");
     } catch (e: any) {
       Alert.alert("Load failed", String(e?.message ?? e));
     } finally {
@@ -54,6 +56,7 @@ export function ReportSchedulerCard() {
 
   async function handleAddRecipient() {
     if (!newEmail.trim()) return;
+
     try {
       await addReportRecipient(newEmail.trim());
       setNewEmail("");
@@ -74,13 +77,56 @@ export function ReportSchedulerCard() {
 
   async function handleSaveSchedule() {
     try {
+      const sendTime = schedule.send_time.trim();
+
+      if (!/^\d{2}:\d{2}$/.test(sendTime)) {
+        Alert.alert("Invalid time", "Send time must use HH:MM format.");
+        return;
+      }
+
+      const [hour, minute] = sendTime.split(":").map(Number);
+      if (
+        !Number.isFinite(hour) ||
+        !Number.isFinite(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+      ) {
+        Alert.alert("Invalid time", "Please enter a valid time from 00:00 to 23:59.");
+        return;
+      }
+
+      let parsedDayOfMonth: number | null = null;
+
+      if (schedule.frequency === "monthly") {
+        const cleaned = dayOfMonthInput.trim();
+
+        if (!cleaned) {
+          Alert.alert("Invalid day", "Please enter a day of month from 1 to 28.");
+          return;
+        }
+
+        parsedDayOfMonth = Number(cleaned);
+
+        if (
+          !Number.isInteger(parsedDayOfMonth) ||
+          parsedDayOfMonth < 1 ||
+          parsedDayOfMonth > 28
+        ) {
+          Alert.alert("Invalid day", "Day of month must be from 1 to 28.");
+          return;
+        }
+      }
+
       await updateReportSchedule({
         frequency: schedule.frequency,
-        send_time: schedule.send_time,
+        send_time: sendTime,
         day_of_week: schedule.frequency === "weekly" ? schedule.day_of_week ?? 0 : null,
-        day_of_month: schedule.frequency === "monthly" ? schedule.day_of_month ?? 1 : null,
+        day_of_month: schedule.frequency === "monthly" ? parsedDayOfMonth : null,
         enabled: schedule.enabled,
       });
+
       await loadAll();
       Alert.alert("Saved", "Report schedule saved.");
     } catch (e: any) {
@@ -119,6 +165,8 @@ export function ReportSchedulerCard() {
           value={newEmail}
           onChangeText={setNewEmail}
           placeholder="name@example.com"
+          autoCapitalize="none"
+          keyboardType="email-address"
           style={{
             flex: 1,
             borderWidth: 1,
@@ -182,7 +230,12 @@ export function ReportSchedulerCard() {
               backgroundColor: schedule.frequency === freq ? "#111" : "#fff",
             }}
           >
-            <Text style={{ color: schedule.frequency === freq ? "#fff" : "#111", fontWeight: "700" }}>
+            <Text
+              style={{
+                color: schedule.frequency === freq ? "#fff" : "#111",
+                fontWeight: "700",
+              }}
+            >
               {freq}
             </Text>
           </Pressable>
@@ -220,7 +273,12 @@ export function ReportSchedulerCard() {
                   backgroundColor: schedule.day_of_week === d.value ? "#111" : "#fff",
                 }}
               >
-                <Text style={{ color: schedule.day_of_week === d.value ? "#fff" : "#111", fontWeight: "700" }}>
+                <Text
+                  style={{
+                    color: schedule.day_of_week === d.value ? "#fff" : "#111",
+                    fontWeight: "700",
+                  }}
+                >
                   {d.label}
                 </Text>
               </Pressable>
@@ -231,13 +289,8 @@ export function ReportSchedulerCard() {
         <>
           <Text style={{ fontWeight: "700" }}>Day of month (1–28)</Text>
           <TextInput
-            value={String(schedule.day_of_month ?? 1)}
-            onChangeText={(v) =>
-              setSchedule((s) => ({
-                ...s,
-                day_of_month: Number(v.replace(/[^0-9]/g, "")) || 1,
-              }))
-            }
+            value={dayOfMonthInput}
+            onChangeText={(v) => setDayOfMonthInput(v.replace(/[^0-9]/g, ""))}
             keyboardType="numeric"
             placeholder="1"
             style={{
@@ -317,7 +370,11 @@ export function ReportSchedulerCard() {
       </View>
 
       <Text style={{ color: "#666" }}>
-        {busy ? "Loading..." : `Updated at: ${schedule.updated_at ? new Date(schedule.updated_at).toLocaleString() : "—"}`}
+        {busy
+          ? "Loading..."
+          : `Updated at: ${
+              schedule.updated_at ? new Date(schedule.updated_at).toLocaleString() : "—"
+            }`}
       </Text>
     </View>
   );
