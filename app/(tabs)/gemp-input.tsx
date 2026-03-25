@@ -78,18 +78,48 @@ export default function GempInputScreen() {
       <View style={{ gap: 10, padding: 12, borderWidth: 1, borderColor: "#eee", borderRadius: 12 }}>
         <Text style={{ fontSize: 16, fontWeight: "800" }}>Header</Text>
 
-        <Input label="Year" value={form.header.year} onChangeText={(t) => updateHeader({ year: t })} placeholder="2026" />
-        <Input label="Agency" value={form.header.agency} onChangeText={(t) => updateHeader({ agency: t })} placeholder="Agency name" />
-        <Input label="Tel Nos." value={form.header.tel} onChangeText={(t) => updateHeader({ tel: t })} placeholder="(xxx) xxxx-xxxx" />
-        <Input label="Address" value={form.header.address} onChangeText={(t) => updateHeader({ address: t })} placeholder="Address" />
-        <Input label="Fax Nos." value={form.header.fax} onChangeText={(t) => updateHeader({ fax: t })} placeholder="Fax" />
-        <Input label="Region" value={form.header.region} onChangeText={(t) => updateHeader({ region: t })} placeholder="Region" />
+        <Input
+          label="Year"
+          value={form.header.year}
+          onChangeText={(t) => updateHeader({ year: t })}
+          placeholder="2026"
+        />
+        <Input
+          label="Agency"
+          value={form.header.agency}
+          onChangeText={(t) => updateHeader({ agency: t })}
+          placeholder="Agency name"
+        />
+        <Input
+          label="Tel Nos."
+          value={form.header.tel}
+          onChangeText={(t) => updateHeader({ tel: t })}
+          placeholder="(xxx) xxxx-xxxx"
+        />
+        <Input
+          label="Address"
+          value={form.header.address}
+          onChangeText={(t) => updateHeader({ address: t })}
+          placeholder="Address"
+        />
+        <Input
+          label="Fax Nos."
+          value={form.header.fax}
+          onChangeText={(t) => updateHeader({ fax: t })}
+          placeholder="Fax"
+        />
+        <Input
+          label="Region"
+          value={form.header.region}
+          onChangeText={(t) => updateHeader({ region: t })}
+          placeholder="Region"
+        />
       </View>
 
       <View style={{ gap: 10, padding: 12, borderWidth: 1, borderColor: "#eee", borderRadius: 12 }}>
         <Text style={{ fontSize: 16, fontWeight: "800" }}>Defaults</Text>
         <Text style={{ color: "#666" }}>
-          You can apply defaults only to empty months, or override all month details.
+          Apply the default information to all months. Re-applying will update existing month values.
         </Text>
 
         <Input
@@ -119,24 +149,10 @@ export default function GempInputScreen() {
 
         <View style={{ gap: 8 }}>
           <Pressable
-            onPress={() => applyDefaultsToAllMonths(false)}
-            style={{
-              padding: 12,
-              borderRadius: 12,
-              backgroundColor: "#111",
-              alignItems: "center",
-            }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "800" }}>
-              Apply defaults to empty months
-            </Text>
-          </Pressable>
-
-          <Pressable
             onPress={async () => {
               const ok = await confirmAction(
-                "Override all month details",
-                "This will replace all monthly building details, gross area, air-conditioned area, and occupants with the current default values."
+                "Apply Information",
+                "This will apply the current default information to all months and replace existing monthly values."
               );
               if (ok) {
                 applyDefaultsToAllMonths(true);
@@ -145,14 +161,12 @@ export default function GempInputScreen() {
             style={{
               padding: 12,
               borderRadius: 12,
-              borderWidth: 1,
-              borderColor: "#f59e0b",
+              backgroundColor: "#111",
               alignItems: "center",
-              justifyContent: "center",
             }}
           >
-            <Text style={{ fontWeight: "700", color: "#b45309" }}>
-              Override all month details with defaults
+            <Text style={{ color: "#fff", fontWeight: "800" }}>
+              Apply Information
             </Text>
           </Pressable>
 
@@ -187,7 +201,16 @@ export default function GempInputScreen() {
           const isCurrentMonth = r.month === currentMonth;
 
           return (
-            <View key={r.month} style={{ padding: 10, borderWidth: 1, borderColor: "#f1f1f1", borderRadius: 12, gap: 8 }}>
+            <View
+              key={r.month}
+              style={{
+                padding: 10,
+                borderWidth: 1,
+                borderColor: "#f1f1f1",
+                borderRadius: 12,
+                gap: 8,
+              }}
+            >
               <Text style={{ fontWeight: "800" }}>{r.month}</Text>
 
               <Input
