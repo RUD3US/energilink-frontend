@@ -8,6 +8,21 @@ export type DailyKwhBarPoint = {
   kwh: number;
 };
 
+export type MonthlyKwhBarPoint = {
+  monthKey: string;
+  label: string;
+  kwh: number;
+};
+
+export type KwhSummary = {
+  current: number;
+  previous: number;
+  avg: number;
+  total: number;
+  peakLabel: string;
+  peakKwh: number;
+};
+
 const POWER_POINTS_ARE_WATTS = true;
 
 function toMs(iso: string) {
@@ -26,10 +41,32 @@ function endOfDayMs(ms: number) {
   return d.getTime();
 }
 
+function startOfMonthMs(ms: number) {
+  const d = new Date(ms);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function endOfMonthMs(ms: number) {
+  const d = new Date(ms);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() + 1);
+  return d.getTime() - 1;
+}
+
 function dayLabel(ms: number) {
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
+  });
+}
+
+function monthLabel(ms: number) {
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    year: "numeric",
   });
 }
 
@@ -50,25 +87,54 @@ function toKwh(powerValue: number, hours: number) {
   return powerValue * hours;
 }
 
-export function useDailyKwh(days = 14, device = DEFAULT_DEVICE) {
+function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
+  const total = data.reduce((sum, d) => sum + d.kwh, 0);
+  const avg = data.length ? total / data.length : 0;
+  const current = data[data.length - 1]?.kwh ?? 0;
+  const previous = data[data.length - 2]?.kwh ?? 0;
+
+  const peak = data.reduce<T | null>(
+    (best, item) => (!best || item.kwh > best.kwh ? item : best),
+    null
+  );
+
+  return {
+    current: Number(current.toFixed(2)),
+    previous: Number(previous.toFixed(2)),
+    avg: Number(avg.toFixed(2)),
+    total: Number(total.toFixed(2)),
+    peakLabel: peak?.label ?? "—",
+    peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
+  };
+}
+
+export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   const powerRT = useRealtime(device, FIELD_POWER);
 
-  useEffect(() => {
-    const estimatedPoints = Math.max(days * 48, 500);
+  const refresh = () => {
+    const estimatedDailyPoints = Math.max(days * 48, 500);
+    const estimatedMonthlyPoints = Math.max(months * 31 * 48, 500);
+    const estimatedPoints = Math.max(estimatedDailyPoints, estimatedMonthlyPoints);
     powerRT.refresh(String(estimatedPoints));
-  }, [days, device]);
+  };
 
-  const data = useMemo<DailyKwhBarPoint[]>(() => {
-    const now = Date.now();
-    const fromMs = startOfDayMs(now - (days - 1) * 24 * 60 * 60 * 1000);
+  useEffect(() => {
+    refresh();
+  }, [days, months, device]);
 
-    const sorted = sanitizePoints(powerRT.points)
+  const sorted = useMemo(() => {
+    return sanitizePoints(powerRT.points)
       .map((p) => ({
         timeMs: toMs(p.time),
         power: p.value,
       }))
       .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.power))
       .sort((a, b) => a.timeMs - b.timeMs);
+  }, [powerRT.points]);
+
+  const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
+    const now = Date.now();
+    const fromMs = startOfDayMs(now - (days - 1) * 24 * 60 * 60 * 1000);
 
     const buckets = new Map<string, number>();
 
@@ -119,36 +185,90 @@ export function useDailyKwh(days = 14, device = DEFAULT_DEVICE) {
         kwh: Number((buckets.get(key) || 0).toFixed(2)),
       };
     });
-  }, [powerRT.points, days]);
+  }, [sorted, days]);
 
-  const summary = useMemo(() => {
-    const total = data.reduce((sum, d) => sum + d.kwh, 0);
-    const avg = data.length ? total / data.length : 0;
-    const today = data[data.length - 1]?.kwh ?? 0;
-    const yesterday = data[data.length - 2]?.kwh ?? 0;
+  const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
+    const now = Date.now();
+    const from = new Date(now);
+    from.setDate(1);
+    from.setHours(0, 0, 0, 0);
+    from.setMonth(from.getMonth() - (months - 1));
+    const fromMs = from.getTime();
 
-    const peak = data.reduce<DailyKwhBarPoint | null>(
-      (best, item) => (!best || item.kwh > best.kwh ? item : best),
-      null
-    );
+    const buckets = new Map<string, number>();
 
-    return {
-      total: Number(total.toFixed(2)),
-      avg: Number(avg.toFixed(2)),
-      today: Number(today.toFixed(2)),
-      yesterday: Number(yesterday.toFixed(2)),
-      peakLabel: peak?.label ?? "—",
-      peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
-    };
-  }, [data]);
+    for (let i = months - 1; i >= 0; i--) {
+      const monthMs = new Date(now);
+      monthMs.setDate(1);
+      monthMs.setHours(0, 0, 0, 0);
+      monthMs.setMonth(monthMs.getMonth() - i);
+      const key = new Date(monthMs).toISOString().slice(0, 7);
+      buckets.set(key, 0);
+    }
+
+    if (sorted.length >= 2) {
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+
+        if (next.timeMs <= fromMs) continue;
+
+        const segStart = Math.max(current.timeMs, fromMs);
+        const segEnd = next.timeMs;
+
+        if (segEnd <= segStart) continue;
+
+        const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
+        if (gapHours > 6) continue;
+        if (current.power < 0) continue;
+
+        let cursor = segStart;
+
+        while (cursor < segEnd) {
+          const sliceEnd = Math.min(endOfMonthMs(cursor) + 1, segEnd);
+          const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
+          const monthStart = startOfMonthMs(cursor);
+          const key = new Date(monthStart).toISOString().slice(0, 7);
+
+          if (buckets.has(key)) {
+            buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
+          }
+
+          cursor = sliceEnd;
+        }
+      }
+    }
+
+    return Array.from(buckets.keys()).map((key) => {
+      const monthMs = new Date(`${key}-01T00:00:00`).getTime();
+      return {
+        monthKey: key,
+        label: monthLabel(monthMs),
+        kwh: Number((buckets.get(key) || 0).toFixed(2)),
+      };
+    });
+  }, [sorted, months]);
+
+  const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
+  const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
 
   return {
-    data,
-    summary,
-    refresh: () => {
-      const estimatedPoints = Math.max(days * 48, 500);
-      powerRT.refresh(String(estimatedPoints));
+    data: dailyData,
+    summary: {
+      today: dailySummary.current,
+      yesterday: dailySummary.previous,
+      avg: dailySummary.avg,
+      total: dailySummary.total,
+      peakLabel: dailySummary.peakLabel,
+      peakKwh: dailySummary.peakKwh,
     },
+
+    dailyData,
+    monthlyData,
+    dailySummary,
+    monthlySummary,
+
+    refresh,
     loading: powerRT.loading,
     error: powerRT.error,
   };
