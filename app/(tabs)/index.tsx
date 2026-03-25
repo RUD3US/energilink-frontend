@@ -34,6 +34,8 @@ import MonitoringSummaryRow from "../../components/MonitoringSummaryRow";
 import { NotesBelowGraph } from "../../components/NotesBelowGraph";
 import { SimpleLineChart } from "../../components/SimpleLineChart";
 
+const ENERGY_LOGO = require("../../assets/energy.jpg");
+
 type Point = {
   time: string;
   value: number;
@@ -407,7 +409,7 @@ export default function TabOneScreen() {
         }}
       >
         <Image
-          source={require("../../assets/energy.jpg")}
+          source={ENERGY_LOGO}
           style={{
             width: 120,
             height: 120,
