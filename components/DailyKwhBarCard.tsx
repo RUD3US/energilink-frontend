@@ -1,8 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useDailyKwh } from "../hooks/useDailyKwh";
-
-type KwhTab = "daily" | "monthly";
 
 function SummaryBox({
   label,
@@ -31,89 +29,15 @@ function SummaryBox({
   );
 }
 
-function TabButton({
-  label,
-  active,
-  onPress,
-}: {
-  label: string;
-  active: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        paddingVertical: 8,
-        paddingHorizontal: 14,
-        borderRadius: 999,
-        borderWidth: 1,
-        borderColor: active ? "#111" : "#d1d5db",
-        backgroundColor: active ? "#111" : "#fff",
-      }}
-    >
-      <Text style={{ color: active ? "#fff" : "#111", fontWeight: "700" }}>{label}</Text>
-    </Pressable>
-  );
-}
-
 export default function DailyKwhBarCard({
   days = 14,
-  months = 12,
 }: {
   days?: number;
-  months?: number;
 }) {
-  const [activeTab, setActiveTab] = useState<KwhTab>("daily");
+  const { data, summary, refresh, loading, error } = useDailyKwh(days);
 
-  const {
-    dailyData,
-    monthlyData,
-    dailySummary,
-    monthlySummary,
-    refresh,
-    loading,
-    error,
-  } = useDailyKwh(days, months);
-
-  const activeBars = useMemo(() => {
-    if (activeTab === "daily") {
-      return dailyData.map((item) => ({
-        key: item.dayKey,
-        label: item.label,
-        kwh: item.kwh,
-      }));
-    }
-
-    return monthlyData.map((item) => ({
-      key: item.monthKey,
-      label: item.label,
-      kwh: item.kwh,
-    }));
-  }, [activeTab, dailyData, monthlyData]);
-
-  const activeSummary = activeTab === "daily" ? dailySummary : monthlySummary;
-  const max = Math.max(...activeBars.map((d) => d.kwh), 1);
+  const max = Math.max(...data.map((d) => d.kwh), 1);
   const chartHeight = 220;
-
-  const title =
-    activeTab === "daily"
-      ? `kWh Bar Graph - Daily (${days} days)`
-      : `kWh Bar Graph - Monthly (${months} months)`;
-
-  const subtitle =
-    activeTab === "daily"
-      ? "Separate daily energy usage computed from archived power history."
-      : "Separate monthly energy usage computed from archived power history.";
-
-  const currentLabel = activeTab === "daily" ? "Today kWh" : "This month kWh";
-  const previousLabel = activeTab === "daily" ? "Yesterday kWh" : "Last month kWh";
-  const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
-  const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
-  const highestBarText =
-    activeTab === "daily"
-      ? `Highest daily bar in this window: ${max.toFixed(2)} kWh`
-      : `Highest monthly bar in this window: ${max.toFixed(2)} kWh`;
 
   return (
     <View
@@ -136,8 +60,12 @@ export default function DailyKwhBarCard({
         }}
       >
         <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 16, fontWeight: "700" }}>{title}</Text>
-          <Text style={{ color: "#555" }}>{subtitle}</Text>
+          <Text style={{ fontSize: 16, fontWeight: "700" }}>
+            Daily kWh Bar Graph ({days} days)
+          </Text>
+          <Text style={{ color: "#555" }}>
+            Separate daily energy usage computed from archived power history.
+          </Text>
         </View>
 
         <Pressable
@@ -157,56 +85,39 @@ export default function DailyKwhBarCard({
         </Pressable>
       </View>
 
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        <TabButton
-          label="Daily"
-          active={activeTab === "daily"}
-          onPress={() => setActiveTab("daily")}
-        />
-        <TabButton
-          label="Monthly"
-          active={activeTab === "monthly"}
-          onPress={() => setActiveTab("monthly")}
-        />
-      </View>
-
-      {error ? <Text style={{ color: "red" }}>kWh error: {error}</Text> : null}
+      {error ? <Text style={{ color: "red" }}>daily kWh error: {error}</Text> : null}
 
       <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-        <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
-        <SummaryBox label={previousLabel} value={activeSummary.previous.toFixed(2)} />
-        <SummaryBox label={avgLabel} value={activeSummary.avg.toFixed(2)} />
-        <SummaryBox label="Total period kWh" value={activeSummary.total.toFixed(2)} />
-        <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
-        <SummaryBox label="Peak kWh" value={activeSummary.peakKwh.toFixed(2)} />
+        <SummaryBox label="Today kWh" value={summary.today.toFixed(2)} />
+        <SummaryBox label="Yesterday kWh" value={summary.yesterday.toFixed(2)} />
+        <SummaryBox label="Average / day" value={summary.avg.toFixed(2)} />
+        <SummaryBox label="Total period kWh" value={summary.total.toFixed(2)} />
+        <SummaryBox label="Peak day" value={summary.peakLabel} />
+        <SummaryBox label="Peak kWh" value={summary.peakKwh.toFixed(2)} />
       </View>
 
-      {!activeBars.length ? (
-        <Text style={{ color: "#666" }}>
-          {activeTab === "daily"
-            ? "No daily kWh data available yet."
-            : "No monthly kWh data available yet."}
-        </Text>
+      {!data.length ? (
+        <Text style={{ color: "#666" }}>No daily kWh data available yet.</Text>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
           <View
             style={{
               flexDirection: "row",
               alignItems: "flex-end",
-              gap: activeTab === "daily" ? 18 : 14,
+              gap: 18,
               minHeight: chartHeight + 70,
               paddingTop: 16,
               paddingBottom: 8,
             }}
           >
-            {activeBars.map((item) => {
+            {data.map((item) => {
               const barHeight = Math.max((item.kwh / max) * chartHeight, 10);
 
               return (
                 <View
-                  key={item.key}
+                  key={item.dayKey}
                   style={{
-                    width: activeTab === "daily" ? 62 : 78,
+                    width: 62,
                     alignItems: "center",
                     justifyContent: "flex-end",
                     gap: 8,
@@ -218,7 +129,7 @@ export default function DailyKwhBarCard({
 
                   <View
                     style={{
-                      width: activeTab === "daily" ? 38 : 44,
+                      width: 38,
                       height: barHeight,
                       borderRadius: 8,
                       backgroundColor: "#111",
@@ -241,7 +152,9 @@ export default function DailyKwhBarCard({
         </ScrollView>
       )}
 
-      <Text style={{ color: "#6b7280", fontSize: 12 }}>{highestBarText}</Text>
+      <Text style={{ color: "#6b7280", fontSize: 12 }}>
+        Highest bar in this window: {max.toFixed(2)} kWh
+      </Text>
     </View>
   );
 }
