@@ -29,6 +29,7 @@ import { createNote, deleteNote } from "../../lib/api";
 
 import { AuthPanel } from "../../components/AuthPanel";
 import DailyKwhBarCard from "../../components/DailyKwhBarCard";
+import MonitoringSummaryRow from "../../components/MonitoringSummaryRow";
 import { NotesBelowGraph } from "../../components/NotesBelowGraph";
 import { SimpleLineChart } from "../../components/SimpleLineChart";
 
@@ -426,6 +427,14 @@ export default function TabOneScreen() {
       >
         <Text>Refresh now</Text>
       </Pressable>
+
+      <MonitoringSummaryRow
+        voltage={latestVoltage}
+        current={latestCurrent}
+        intervaledPower={latestIntervaledPower}
+        realtimePower={latestRealtimePower}
+        kwhDays={14}
+      />
 
       <View
         style={{
