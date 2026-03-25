@@ -1,7 +1,7 @@
-import { Image } from "react-native";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -398,21 +398,27 @@ export default function TabOneScreen() {
 
   return (
     <ScrollView contentContainerStyle={{ padding: PAGE_PADDING, gap: CARD_GAP }}>
-      <Text style={{ fontSize: 22, fontWeight: "700" }}>EnergiLink Live Monitoring</Text>
-      <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
-      <View style={{ alignItems: "center", gap: 8 }}>
-  <Image
-    source={require("../../assets/energilink-logo.png")}
-    style={{
-      width: 120,
-      height: 120,
-      resizeMode: "contain",
-    }}
-  />
-  <Text style={{ fontSize: 22, fontWeight: "700" }}>EnergiLink Live Monitoring</Text>
-  <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
-</View>
-      
+      <View
+        style={{
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          marginBottom: 4,
+        }}
+      >
+        <Image
+          source={require("../../assets/energy.jpg")}
+          style={{
+            width: 120,
+            height: 120,
+            resizeMode: "contain",
+            borderRadius: 16,
+          }}
+        />
+        <Text style={{ fontSize: 22, fontWeight: "700" }}>EnergiLink Live Monitoring</Text>
+        <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
+      </View>
+
       {voltageRT.error ? <Text style={{ color: "red" }}>voltage error: {voltageRT.error}</Text> : null}
       {currentRT.error ? <Text style={{ color: "red" }}>current error: {currentRT.error}</Text> : null}
       {powerRT.error ? <Text style={{ color: "red" }}>intervaled power error: {powerRT.error}</Text> : null}
