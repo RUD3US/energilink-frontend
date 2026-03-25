@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Alert, Pressable, Text, TextInput, View } from "react-native";
+import { Alert, Platform, Pressable, Text, TextInput, View } from "react-native";
 import {
   addReportRecipient,
   deleteReportRecipient,
@@ -21,6 +21,30 @@ const WEEKDAYS = [
   { label: "Sun", value: 6 },
 ];
 
+async function confirmAction(title: string, message: string) {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined") {
+      return window.confirm(`${title}\n\n${message}`);
+    }
+    return false;
+  }
+
+  return await new Promise<boolean>((resolve) => {
+    Alert.alert(title, message, [
+      {
+        text: "Cancel",
+        style: "cancel",
+        onPress: () => resolve(false),
+      },
+      {
+        text: "Continue",
+        style: "default",
+        onPress: () => resolve(true),
+      },
+    ]);
+  });
+}
+
 export function ReportSchedulerCard() {
   const [recipients, setRecipients] = useState<ReportRecipient[]>([]);
   const [newEmail, setNewEmail] = useState("");
@@ -35,6 +59,9 @@ export function ReportSchedulerCard() {
   });
   const [dayOfMonthInput, setDayOfMonthInput] = useState("1");
   const [busy, setBusy] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [sendStatus, setSendStatus] = useState("");
 
   async function loadAll() {
     setBusy(true);
@@ -77,6 +104,8 @@ export function ReportSchedulerCard() {
 
   async function handleSaveSchedule() {
     try {
+      setSaveBusy(true);
+
       const sendTime = schedule.send_time.trim();
 
       if (!/^\d{2}:\d{2}$/.test(sendTime)) {
@@ -131,15 +160,45 @@ export function ReportSchedulerCard() {
       Alert.alert("Saved", "Report schedule saved.");
     } catch (e: any) {
       Alert.alert("Save failed", String(e?.message ?? e));
+    } finally {
+      setSaveBusy(false);
     }
   }
 
   async function handleSendTest() {
+    const targetRecipients = recipients
+      .filter((r) => r.is_active)
+      .map((r) => r.email)
+      .join(", ");
+
+    const ok = await confirmAction(
+      "Send test email",
+      targetRecipients
+        ? `Send a test GEMP PDF email to:\n\n${targetRecipients}`
+        : "No saved recipients found. The backend will try to use configured recipients if available.\n\nDo you want to continue?"
+    );
+
+    if (!ok) return;
+
     try {
+      setSendingTest(true);
+      setSendStatus("Sending test email...");
+
       const result = await sendTestGempReport();
-      Alert.alert("Test sent", `Sent to: ${result.sent_to.join(", ")}`);
+
+      const sentTo = Array.isArray(result?.sent_to) ? result.sent_to.join(", ") : "";
+      const successMessage = sentTo
+        ? `Test email sent successfully to:\n\n${sentTo}`
+        : "Test email sent successfully.";
+
+      setSendStatus("Test email sent successfully.");
+      Alert.alert("Test sent", successMessage);
     } catch (e: any) {
-      Alert.alert("Test send failed", String(e?.message ?? e));
+      const message = String(e?.message ?? e);
+      setSendStatus(`Send failed: ${message}`);
+      Alert.alert("Test send failed", message);
+    } finally {
+      setSendingTest(false);
     }
   }
 
@@ -156,7 +215,7 @@ export function ReportSchedulerCard() {
     >
       <Text style={{ fontSize: 18, fontWeight: "800" }}>Scheduled GEMP Email</Text>
       <Text style={{ color: "#555" }}>
-        Supports weekly or monthly sending only. The backend service sends the DOCX automatically.
+        Supports weekly or monthly sending only. The backend service sends the PDF automatically.
       </Text>
 
       <Text style={{ fontWeight: "700" }}>Recipients</Text>
@@ -342,32 +401,49 @@ export function ReportSchedulerCard() {
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Pressable
           onPress={handleSaveSchedule}
+          disabled={saveBusy}
           style={{
             flex: 1,
             padding: 12,
             borderRadius: 12,
-            backgroundColor: "#111",
+            backgroundColor: saveBusy ? "#9ca3af" : "#111",
             alignItems: "center",
           }}
         >
-          <Text style={{ color: "#fff", fontWeight: "900" }}>Save schedule</Text>
+          <Text style={{ color: "#fff", fontWeight: "900" }}>
+            {saveBusy ? "Saving..." : "Save schedule"}
+          </Text>
         </Pressable>
 
         <Pressable
           onPress={handleSendTest}
+          disabled={sendingTest}
           style={{
             flex: 1,
             padding: 12,
             borderRadius: 12,
             borderWidth: 1,
-            borderColor: "#111",
+            borderColor: sendingTest ? "#9ca3af" : "#111",
             alignItems: "center",
-            backgroundColor: "#fff",
+            backgroundColor: sendingTest ? "#f3f4f6" : "#fff",
           }}
         >
-          <Text style={{ color: "#111", fontWeight: "900" }}>Send test now</Text>
+          <Text style={{ color: "#111", fontWeight: "900" }}>
+            {sendingTest ? "Sending..." : "Send test now"}
+          </Text>
         </Pressable>
       </View>
+
+      {sendStatus ? (
+        <Text
+          style={{
+            color: sendStatus.toLowerCase().includes("failed") ? "#b91c1c" : "#065f46",
+            fontWeight: "600",
+          }}
+        >
+          {sendStatus}
+        </Text>
+      ) : null}
 
       <Text style={{ color: "#666" }}>
         {busy
