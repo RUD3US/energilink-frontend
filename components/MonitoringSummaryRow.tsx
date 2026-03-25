@@ -70,7 +70,7 @@ export default function MonitoringSummaryRow({
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 16, fontWeight: "700" }}>Monitoring Summary</Text>
         <Text style={{ color: "#555" }}>
-          Quick key values in one row for easier tracking.
+        
         </Text>
       </View>
 
