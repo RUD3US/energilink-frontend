@@ -1,8 +1,9 @@
-import { Platform } from "react-native";
-import { API_BASE } from "../config";
+import { Alert, Platform } from "react-native";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 
 type GempHeader = {
-  year?: string | number;
+  year?: string;
   agency?: string;
   tel?: string;
   address?: string;
@@ -16,112 +17,270 @@ type GempHeader = {
 
 type GempRow = {
   month: string;
-  baseline2025?: string | number | null;
-  buildingDesc?: string | null;
-  grossArea?: string | number | null;
-  airconArea?: string | number | null;
-  occupants?: string | number | null;
-  kwh?: string | number | null;
+  baseline2025?: string;
+  buildingDesc?: string;
+  grossArea?: string;
+  airconArea?: string;
+  occupants?: string;
+  kwh?: string;
 };
 
 type GempStats = {
-  avgBaseline?: string | number | null;
-  avgGrossArea?: string | number | null;
-  avgAirconArea?: string | number | null;
-  avgOccupants?: string | number | null;
-  avgKwh?: string | number | null;
+  avgBaseline?: string;
+  avgGrossArea?: string;
+  avgAirconArea?: string;
+  avgOccupants?: string;
+  avgKwh?: string;
 };
 
-type GempReportPayload = {
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function valueOrDash(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text ? escapeHtml(text) : "&mdash;";
+}
+
+function buildGempHtml({
+  header,
+  rows,
+  stats,
+}: {
   header: GempHeader;
   rows: GempRow[];
   stats: GempStats;
-};
+}) {
+  const rowsHtml = rows
+    .map(
+      (r) => `
+        <tr>
+          <td>${valueOrDash(r.month)}</td>
+          <td>${valueOrDash(r.baseline2025)}</td>
+          <td>${valueOrDash(r.buildingDesc)}</td>
+          <td>${valueOrDash(r.grossArea)}</td>
+          <td>${valueOrDash(r.airconArea)}</td>
+          <td>${valueOrDash(r.occupants)}</td>
+          <td>${valueOrDash(r.kwh)}</td>
+        </tr>
+      `
+    )
+    .join("");
 
-export async function exportGempToDocx(payload: GempReportPayload) {
-  const backendPayload = {
-    header: {
-      year: payload.header?.year ?? "",
-      agency: payload.header?.agency ?? "",
-      tel: payload.header?.tel ?? "",
-      address: payload.header?.address ?? "",
-      fax: payload.header?.fax ?? "",
-      region: payload.header?.region ?? "",
-      preparedBy: payload.header?.preparedBy ?? "",
-      preparedByDesignation: payload.header?.preparedByDesignation ?? "",
-      notedBy: payload.header?.notedBy ?? "",
-      notedByDesignation: payload.header?.notedByDesignation ?? "",
-    },
-    rows: (payload.rows || []).map((row) => ({
-      month: row.month,
-      baseline2025: row.baseline2025 ?? "",
-      buildingDesc: row.buildingDesc ?? "",
-      grossArea: row.grossArea ?? "",
-      airconArea: row.airconArea ?? "",
-      occupants: row.occupants ?? "",
-      kwh: row.kwh ?? "",
-    })),
-    stats: {
-      avgBaseline: payload.stats?.avgBaseline ?? "",
-      avgGrossArea: payload.stats?.avgGrossArea ?? "",
-      avgAirconArea: payload.stats?.avgAirconArea ?? "",
-      avgOccupants: payload.stats?.avgOccupants ?? "",
-      avgKwh: payload.stats?.avgKwh ?? "",
-    },
-  };
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>GEMP Annex A</title>
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 18px;
+          }
 
-  const res = await fetch(`${API_BASE}/reports/gemp/docx`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(backendPayload),
-  });
+          body {
+            font-family: Arial, Helvetica, sans-serif;
+            color: #111;
+            font-size: 10px;
+            margin: 0;
+          }
 
-  if (!res.ok) {
-    throw new Error(await res.text());
-  }
+          .title {
+            text-align: center;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+          }
 
-  const year = String(payload.header?.year ?? "report");
+          .subtitle {
+            text-align: center;
+            font-size: 11px;
+            margin-bottom: 14px;
+          }
+
+          .section {
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+          }
+
+          .section-title {
+            font-weight: 700;
+            font-size: 11px;
+            margin-bottom: 8px;
+          }
+
+          .header-grid {
+            width: 100%;
+            border-collapse: collapse;
+          }
+
+          .header-grid td {
+            padding: 4px 6px;
+            vertical-align: top;
+          }
+
+          .label {
+            width: 130px;
+            font-weight: 700;
+          }
+
+          table.report {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+
+          table.report th,
+          table.report td {
+            border: 1px solid #d1d5db;
+            padding: 6px;
+            vertical-align: top;
+            word-wrap: break-word;
+          }
+
+          table.report th {
+            background: #f3f4f6;
+            text-align: left;
+            font-weight: 700;
+          }
+
+          .avg-row td {
+            font-weight: 700;
+            background: #f9fafb;
+          }
+
+          .sign-row {
+            width: 100%;
+            margin-top: 16px;
+            border-collapse: collapse;
+          }
+
+          .sign-row td {
+            width: 50%;
+            vertical-align: top;
+            padding-right: 20px;
+          }
+
+          .line {
+            margin-top: 28px;
+            border-top: 1px solid #111;
+            padding-top: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="title">GEMP Report</div>
+        <div class="subtitle">Annex A</div>
+
+        <div class="section">
+          <div class="section-title">Header Information</div>
+          <table class="header-grid">
+            <tr>
+              <td class="label">Year</td>
+              <td>${valueOrDash(header.year)}</td>
+              <td class="label">Agency</td>
+              <td>${valueOrDash(header.agency)}</td>
+            </tr>
+            <tr>
+              <td class="label">Tel Nos.</td>
+              <td>${valueOrDash(header.tel)}</td>
+              <td class="label">Fax Nos.</td>
+              <td>${valueOrDash(header.fax)}</td>
+            </tr>
+            <tr>
+              <td class="label">Address</td>
+              <td>${valueOrDash(header.address)}</td>
+              <td class="label">Region</td>
+              <td>${valueOrDash(header.region)}</td>
+            </tr>
+          </table>
+        </div>
+
+        <div class="section">
+          <div class="section-title">Monthly Table</div>
+          <table class="report">
+            <thead>
+              <tr>
+                <th style="width: 10%;">Month</th>
+                <th style="width: 14%;">Baseline kWh in 2025</th>
+                <th style="width: 22%;">Building Description</th>
+                <th style="width: 14%;">Gross Area (sqm)</th>
+                <th style="width: 16%;">Air-conditioned Area (sqm)</th>
+                <th style="width: 10%;">Occupants</th>
+                <th style="width: 14%;">Monthly Consumption (kWh)</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+              <tr class="avg-row">
+                <td>Average</td>
+                <td>${valueOrDash(stats.avgBaseline)}</td>
+                <td>&mdash;</td>
+                <td>${valueOrDash(stats.avgGrossArea)}</td>
+                <td>${valueOrDash(stats.avgAirconArea)}</td>
+                <td>${valueOrDash(stats.avgOccupants)}</td>
+                <td>${valueOrDash(stats.avgKwh)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <table class="sign-row">
+          <tr>
+            <td>
+              <div><strong>Prepared by</strong></div>
+              <div class="line">${valueOrDash(header.preparedBy)}</div>
+              <div>${valueOrDash(header.preparedByDesignation)}</div>
+            </td>
+            <td>
+              <div><strong>Noted by</strong></div>
+              <div class="line">${valueOrDash(header.notedBy)}</div>
+              <div>${valueOrDash(header.notedByDesignation)}</div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+  `;
+}
+
+export async function exportGempToPdf({
+  header,
+  rows,
+  stats,
+}: {
+  header: GempHeader;
+  rows: GempRow[];
+  stats: GempStats;
+}) {
+  const html = buildGempHtml({ header, rows, stats });
 
   if (Platform.OS === "web") {
-    const blob = await res.blob();
-    const url = window.URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `gemp-annex-a-${year}.docx`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-
-    window.URL.revokeObjectURL(url);
+    await Print.printAsync({ html });
     return;
   }
 
-  const [{ Buffer }, FileSystem, Sharing] = await Promise.all([
-    import("buffer"),
-    import("expo-file-system"),
-    import("expo-sharing"),
-  ]);
-
-  const arrayBuffer = await res.arrayBuffer();
-  const base64 = Buffer.from(arrayBuffer).toString("base64");
-
-  const fileUri = `${FileSystem.cacheDirectory}gemp-annex-a-${year}.docx`;
-
-  await FileSystem.writeAsStringAsync(fileUri, base64, {
-    encoding: FileSystem.EncodingType.Base64,
+  const { uri } = await Print.printToFileAsync({
+    html,
+    base64: false,
   });
 
   const canShare = await Sharing.isAvailableAsync();
-  if (!canShare) {
-    throw new Error(`DOCX saved to ${fileUri}, but sharing is not available on this device.`);
+
+  if (canShare) {
+    await Sharing.shareAsync(uri, {
+      UTI: ".pdf",
+      mimeType: "application/pdf",
+    });
+    return;
   }
 
-  await Sharing.shareAsync(fileUri, {
-    mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    dialogTitle: "Export GEMP Report",
-    UTI: "org.openxmlformats.wordprocessingml.document",
-  });
+  Alert.alert("PDF created", `Saved PDF at: ${uri}`);
 }
