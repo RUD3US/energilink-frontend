@@ -1,160 +1,268 @@
-import React from "react";
-import { Pressable, ScrollView, Text, View } from "react-native";
-import { useDailyKwh } from "../hooks/useDailyKwh";
+import { useEffect, useMemo } from "react";
+import { DEFAULT_DEVICE, FIELD_POWER } from "../config";
+import { useRealtime } from "./useRealtime";
 
-function SummaryBox({
-  label,
-  value,
-}: {
+export type DailyKwhBarPoint = {
+  dayKey: string;
   label: string;
-  value: string;
-}) {
-  return (
-    <View
-      style={{
-        flex: 1,
-        minWidth: 140,
-        paddingVertical: 12,
-        paddingHorizontal: 14,
-        borderWidth: 1,
-        borderColor: "#d1d5db",
-        borderRadius: 14,
-        backgroundColor: "#f8fafc",
-        gap: 4,
-      }}
-    >
-      <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>{label}</Text>
-      <Text style={{ fontSize: 24, fontWeight: "800", color: "#111827" }}>{value}</Text>
-    </View>
+  kwh: number;
+};
+
+export type MonthlyKwhBarPoint = {
+  monthKey: string;
+  label: string;
+  kwh: number;
+};
+
+export type KwhSummary = {
+  current: number;
+  previous: number;
+  avg: number;
+  total: number;
+  peakLabel: string;
+  peakKwh: number;
+};
+
+const POWER_POINTS_ARE_WATTS = true;
+
+function toMs(iso: string) {
+  return new Date(iso).getTime();
+}
+
+function startOfDayMs(ms: number) {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function endOfDayMs(ms: number) {
+  const d = new Date(ms);
+  d.setHours(23, 59, 59, 999);
+  return d.getTime();
+}
+
+function startOfMonthMs(ms: number) {
+  const d = new Date(ms);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
+
+function endOfMonthMs(ms: number) {
+  const d = new Date(ms);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  d.setMonth(d.getMonth() + 1);
+  return d.getTime() - 1;
+}
+
+function dayKeyFromMs(ms: number) {
+  return new Date(startOfDayMs(ms)).toISOString().slice(0, 10);
+}
+
+function monthKeyFromMs(ms: number) {
+  return new Date(startOfMonthMs(ms)).toISOString().slice(0, 7);
+}
+
+function dayLabel(ms: number) {
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function monthLabel(ms: number) {
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function sanitizePoints(points: { time: string; value: number }[]) {
+  return points.filter(
+    (p) =>
+      p &&
+      typeof p.time === "string" &&
+      typeof p.value === "number" &&
+      Number.isFinite(p.value)
   );
 }
 
-export default function DailyKwhBarCard({
-  days = 14,
-}: {
-  days?: number;
-}) {
-  const { data, summary, refresh, loading, error } = useDailyKwh(days);
+function toKwh(powerValue: number, hours: number) {
+  if (POWER_POINTS_ARE_WATTS) {
+    return (powerValue / 1000) * hours;
+  }
+  return powerValue * hours;
+}
 
-  const max = Math.max(...data.map((d) => d.kwh), 1);
-  const chartHeight = 220;
+function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
+  const total = data.reduce((sum, item) => sum + item.kwh, 0);
+  const avg = data.length ? total / data.length : 0;
+  const current = data[data.length - 1]?.kwh ?? 0;
+  const previous = data[data.length - 2]?.kwh ?? 0;
 
-  return (
-    <View
-      style={{
-        gap: 12,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: "#e5e7eb",
-        borderRadius: 16,
-        backgroundColor: "#fff",
-      }}
-    >
-      <View
-        style={{
-          flexDirection: "row",
-          justifyContent: "space-between",
-          alignItems: "center",
-          flexWrap: "wrap",
-          gap: 8,
-        }}
-      >
-        <View style={{ gap: 4 }}>
-          <Text style={{ fontSize: 16, fontWeight: "700" }}>
-            Daily kWh Bar Graph ({days} days)
-          </Text>
-          <Text style={{ color: "#555" }}>
-            Separate daily energy usage computed from archived power history.
-          </Text>
-        </View>
-
-        <Pressable
-          onPress={refresh}
-          style={{
-            paddingVertical: 10,
-            paddingHorizontal: 14,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "#ddd",
-            backgroundColor: "#fff",
-          }}
-        >
-          <Text style={{ fontWeight: "700" }}>
-            {loading ? "Refreshing..." : "Refresh kWh graph"}
-          </Text>
-        </Pressable>
-      </View>
-
-      {error ? <Text style={{ color: "red" }}>daily kWh error: {error}</Text> : null}
-
-      <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-        <SummaryBox label="Today kWh" value={summary.today.toFixed(2)} />
-        <SummaryBox label="Yesterday kWh" value={summary.yesterday.toFixed(2)} />
-        <SummaryBox label="Average / day" value={summary.avg.toFixed(2)} />
-        <SummaryBox label="Total period kWh" value={summary.total.toFixed(2)} />
-        <SummaryBox label="Peak day" value={summary.peakLabel} />
-        <SummaryBox label="Peak kWh" value={summary.peakKwh.toFixed(2)} />
-      </View>
-
-      {!data.length ? (
-        <Text style={{ color: "#666" }}>No daily kWh data available yet.</Text>
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: 18,
-              minHeight: chartHeight + 70,
-              paddingTop: 16,
-              paddingBottom: 8,
-            }}
-          >
-            {data.map((item) => {
-              const barHeight = Math.max((item.kwh / max) * chartHeight, 10);
-
-              return (
-                <View
-                  key={item.dayKey}
-                  style={{
-                    width: 62,
-                    alignItems: "center",
-                    justifyContent: "flex-end",
-                    gap: 8,
-                  }}
-                >
-                  <Text style={{ fontSize: 11, fontWeight: "700" }}>
-                    {item.kwh.toFixed(2)}
-                  </Text>
-
-                  <View
-                    style={{
-                      width: 38,
-                      height: barHeight,
-                      borderRadius: 8,
-                      backgroundColor: "#111",
-                    }}
-                  />
-
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      color: "#666",
-                      textAlign: "center",
-                    }}
-                  >
-                    {item.label}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
-      )}
-
-      <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Highest bar in this window: {max.toFixed(2)} kWh
-      </Text>
-    </View>
+  const peak = data.reduce<T | null>(
+    (best, item) => (!best || item.kwh > best.kwh ? item : best),
+    null
   );
+
+  return {
+    current: Number(current.toFixed(2)),
+    previous: Number(previous.toFixed(2)),
+    avg: Number(avg.toFixed(2)),
+    total: Number(total.toFixed(2)),
+    peakLabel: peak?.label ?? "—",
+    peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
+  };
+}
+
+export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
+  const powerRT = useRealtime(device, FIELD_POWER);
+
+  const refresh = () => {
+    const estimatedDailyPoints = Math.max(days * 48, 500);
+    const estimatedMonthlyPoints = Math.max(months * 31 * 48, 500);
+    const estimatedPoints = Math.max(estimatedDailyPoints, estimatedMonthlyPoints);
+    powerRT.refresh(String(estimatedPoints));
+  };
+
+  useEffect(() => {
+    refresh();
+  }, [days, months, device]);
+
+  const sorted = useMemo(() => {
+    return sanitizePoints(powerRT.points)
+      .map((p) => ({
+        timeMs: toMs(p.time),
+        power: p.value,
+      }))
+      .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.power))
+      .sort((a, b) => a.timeMs - b.timeMs);
+  }, [powerRT.points]);
+
+  const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
+    const now = Date.now();
+    const fromMs = startOfDayMs(now - (days - 1) * 24 * 60 * 60 * 1000);
+
+    const buckets = new Map<string, number>();
+
+    for (let i = days - 1; i >= 0; i--) {
+      const dayMs = startOfDayMs(now - i * 24 * 60 * 60 * 1000);
+      buckets.set(dayKeyFromMs(dayMs), 0);
+    }
+
+    if (sorted.length >= 2) {
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+
+        if (next.timeMs <= fromMs) continue;
+
+        const segStart = Math.max(current.timeMs, fromMs);
+        const segEnd = next.timeMs;
+
+        if (segEnd <= segStart) continue;
+
+        const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
+        if (gapHours > 6) continue;
+        if (current.power < 0) continue;
+
+        let cursor = segStart;
+
+        while (cursor < segEnd) {
+          const sliceEnd = Math.min(endOfDayMs(cursor) + 1, segEnd);
+          const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
+          const key = dayKeyFromMs(cursor);
+
+          if (buckets.has(key)) {
+            buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
+          }
+
+          cursor = sliceEnd;
+        }
+      }
+    }
+
+    return Array.from(buckets.keys()).map((key) => {
+      const ms = new Date(`${key}T00:00:00`).getTime();
+      return {
+        dayKey: key,
+        label: dayLabel(ms),
+        kwh: Number((buckets.get(key) || 0).toFixed(2)),
+      };
+    });
+  }, [sorted, days]);
+
+  const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
+    const now = Date.now();
+    const firstMonth = new Date(now);
+    firstMonth.setDate(1);
+    firstMonth.setHours(0, 0, 0, 0);
+    firstMonth.setMonth(firstMonth.getMonth() - (months - 1));
+    const fromMs = firstMonth.getTime();
+
+    const buckets = new Map<string, number>();
+
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(1);
+      d.setHours(0, 0, 0, 0);
+      d.setMonth(d.getMonth() - i);
+      buckets.set(monthKeyFromMs(d.getTime()), 0);
+    }
+
+    if (sorted.length >= 2) {
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const current = sorted[i];
+        const next = sorted[i + 1];
+
+        if (next.timeMs <= fromMs) continue;
+
+        const segStart = Math.max(current.timeMs, fromMs);
+        const segEnd = next.timeMs;
+
+        if (segEnd <= segStart) continue;
+
+        const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
+        if (gapHours > 6) continue;
+        if (current.power < 0) continue;
+
+        let cursor = segStart;
+
+        while (cursor < segEnd) {
+          const sliceEnd = Math.min(endOfMonthMs(cursor) + 1, segEnd);
+          const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
+          const key = monthKeyFromMs(cursor);
+
+          if (buckets.has(key)) {
+            buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
+          }
+
+          cursor = sliceEnd;
+        }
+      }
+    }
+
+    return Array.from(buckets.keys()).map((key) => {
+      const ms = new Date(`${key}-01T00:00:00`).getTime();
+      return {
+        monthKey: key,
+        label: monthLabel(ms),
+        kwh: Number((buckets.get(key) || 0).toFixed(2)),
+      };
+    });
+  }, [sorted, months]);
+
+  const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
+  const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
+
+  return {
+    dailyData,
+    monthlyData,
+    dailySummary,
+    monthlySummary,
+    refresh,
+    loading: powerRT.loading,
+    error: powerRT.error,
+  };
 }
