@@ -110,6 +110,43 @@ export type ReportSchedule = {
   updated_at: string;
 };
 
+export type GempHeader = {
+  year?: string;
+  agency?: string;
+  tel?: string;
+  address?: string;
+  fax?: string;
+  region?: string;
+  preparedBy?: string;
+  preparedByDesignation?: string;
+  notedBy?: string;
+  notedByDesignation?: string;
+};
+
+export type GempRow = {
+  month: string;
+  baseline2025?: string | number | null;
+  buildingDesc?: string | null;
+  grossArea?: string | number | null;
+  airconArea?: string | number | null;
+  occupants?: string | number | null;
+  kwh?: string | number | null;
+};
+
+export type GempStats = {
+  avgBaseline?: string | number | null;
+  avgGrossArea?: string | number | null;
+  avgAirconArea?: string | number | null;
+  avgOccupants?: string | number | null;
+  avgKwh?: string | number | null;
+};
+
+export type GempReportPayload = {
+  header: GempHeader;
+  rows: GempRow[];
+  stats: GempStats;
+};
+
 export async function getReportRecipients() {
   const res = await fetch(`${API_BASE}/reports/settings/recipients`);
   if (!res.ok) throw new Error(await readErrorMessage(res));
@@ -154,6 +191,30 @@ export async function updateReportSchedule(body: {
   });
   if (!res.ok) throw new Error(await readErrorMessage(res));
   return res.json() as Promise<ReportSchedule>;
+}
+
+export async function getGempReportConfig() {
+  const res = await fetch(`${API_BASE}/reports/gemp/config`);
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+  return res.json() as Promise<{
+    payload: GempReportPayload;
+    updated_at: string;
+  }>;
+}
+
+export async function saveGempReportConfig(body: GempReportPayload) {
+  const res = await fetch(`${API_BASE}/reports/gemp/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+
+  return res.json() as Promise<{
+    payload: GempReportPayload;
+    updated_at: string;
+  }>;
 }
 
 export async function sendTestGempReport(recipients?: string[]) {
