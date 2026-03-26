@@ -193,7 +193,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     }
 
     return Array.from(buckets.keys()).map((key) => {
-      const dayMs = startOfDayMs(new Date(`${key}T00:00:00`).getTime());
+      const dayMs = new Date(`${key}T00:00:00`).getTime();
       return {
         dayKey: key,
         label: dayLabel(dayMs),
