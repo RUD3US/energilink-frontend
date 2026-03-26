@@ -224,7 +224,7 @@ export default function DailyKwhBarCard({
   const title =
     activeTab === "daily"
       ? `Daily kWh Bar Graph (${days} days)`
-      : `Monthly kWh Bar Graph (${monthlyBars.length || months} months)`;
+      : "Monthly kWh Bar Graph";
 
   const subtitle =
     activeTab === "daily"
