@@ -124,7 +124,6 @@ export default function DailyKwhBarCard({
   const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
-  const hookMonthlyData = Array.isArray(result.monthlyData) ? result.monthlyData : [];
 
   const dailySummary = result.dailySummary ?? {
     current: result.summary?.today ?? 0,
@@ -138,7 +137,7 @@ export default function DailyKwhBarCard({
   const currentMonthLabel = String(gemp.dynamic?.current_month_label ?? "").trim();
   const normalizedCurrentMonth = normalizeMonthLabel(currentMonthLabel);
 
-  const gempMonthlyBars = useMemo<ChartBar[]>(() => {
+  const monthlyBars = useMemo<ChartBar[]>(() => {
     const rows = Array.isArray(gemp.report?.rows) ? gemp.report.rows : [];
 
     if (!rows.length) return [];
@@ -178,22 +177,6 @@ export default function DailyKwhBarCard({
     });
   }, [gemp.report?.rows, normalizedCurrentMonth]);
 
-  const monthlyBars = useMemo<ChartBar[]>(() => {
-    if (gempMonthlyBars.length) {
-      return gempMonthlyBars;
-    }
-
-    return hookMonthlyData.map((item) => ({
-      key: item.monthKey,
-      label: item.label,
-      fullLabel: item.label,
-      kwh: item.kwh,
-      isCurrent:
-        normalizedCurrentMonth.length > 0 &&
-        normalizeMonthLabel(item.label).includes(normalizedCurrentMonth.slice(0, 3)),
-    }));
-  }, [gempMonthlyBars, hookMonthlyData, normalizedCurrentMonth]);
-
   const monthlySummary = useMemo(() => {
     return buildSummary(
       monthlyBars.map((item) => ({
@@ -221,18 +204,15 @@ export default function DailyKwhBarCard({
   const max = Math.max(...activeBars.map((d) => d.kwh), 1);
   const chartHeight = 220;
 
-  const title =
-    activeTab === "daily"
-      ? `Daily kWh Bar Graph (${days} days)`
-      : "Monthly kWh Bar Graph";
+  const title = activeTab === "daily" ? "Daily kWh Bar Graph" : "Monthly kWh Bar Graph";
 
   const subtitle =
     activeTab === "daily"
-      ? "Separate daily energy usage computed from archived power history."
-      : "Monthly energy usage synced with the same GEMP report data.";
+      ? `Archived power history for the last ${days} days.`
+      : "Monthly kWh synced with the GEMP report tab.";
 
-  const currentLabel = activeTab === "daily" ? "Today kWh" : "Current month kWh";
-  const previousLabel = activeTab === "daily" ? "Yesterday kWh" : "Previous month kWh";
+  const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
+  const previousLabel = activeTab === "daily" ? "Previous day kWh" : "Previous month kWh";
   const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
   const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
 
