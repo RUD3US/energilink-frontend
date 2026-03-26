@@ -1,8 +1,9 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { Alert, Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { ReportSchedulerCard } from "../../components/ReportSchedulerCard";
 import { useGempReport } from "../../hooks/useGempReport";
 import { exportGempToPdf } from "../../lib/gempExport";
+import { saveGempReportConfig } from "../../lib/api";
 
 function safeFixed(value: unknown, digits = 2) {
   const n =
@@ -68,6 +69,38 @@ async function confirmAction(title: string, message: string) {
 export default function GempReportScreen() {
   const { report, stats, dynamic, loading, error, refresh, reset, version } = useGempReport();
   const rows = useMemo(() => report.rows ?? [], [report.rows, version]);
+
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+
+  async function syncReportForScheduler(showAlert = false) {
+    try {
+      setSaveBusy(true);
+      setSaveStatus("Saving latest GEMP data for scheduler/test...");
+
+      const result = await saveGempReportConfig({
+        header: report.header,
+        rows: report.rows,
+        stats,
+      });
+
+      const updatedAt = result?.updated_at
+        ? new Date(result.updated_at).toLocaleString()
+        : "just now";
+
+      setSaveStatus(`Saved for scheduler/test at ${updatedAt}.`);
+
+      if (showAlert) {
+        Alert.alert("Saved", `Latest GEMP data saved for scheduler/test.\n\nUpdated at: ${updatedAt}`);
+      }
+    } catch (e: any) {
+      const message = String(e?.message ?? e);
+      setSaveStatus(`Save failed: ${message}`);
+      throw e;
+    } finally {
+      setSaveBusy(false);
+    }
+  }
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
@@ -267,12 +300,16 @@ export default function GempReportScreen() {
                   : "-"}
               </Text>
               <Text style={{ width: 140 }}>
-                {stats.avgAirconArea !== undefined && stats.avgAirconArea !== null && stats.avgAirconArea !== ""
+                {stats.avgAirconArea !== undefined &&
+                stats.avgAirconArea !== null &&
+                stats.avgAirconArea !== ""
                   ? String(stats.avgAirconArea)
                   : "-"}
               </Text>
               <Text style={{ width: 110 }}>
-                {stats.avgOccupants !== undefined && stats.avgOccupants !== null && stats.avgOccupants !== ""
+                {stats.avgOccupants !== undefined &&
+                stats.avgOccupants !== null &&
+                stats.avgOccupants !== ""
                   ? String(stats.avgOccupants)
                   : "-"}
               </Text>
@@ -284,6 +321,35 @@ export default function GempReportScreen() {
             </View>
           </View>
         </ScrollView>
+      </View>
+
+      <View style={{ gap: 8 }}>
+        <Pressable
+          onPress={async () => {
+            try {
+              await syncReportForScheduler(true);
+            } catch (e: any) {
+              Alert.alert("Save failed", String(e?.message ?? e));
+            }
+          }}
+          disabled={saveBusy}
+          style={{
+            padding: 12,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "#111",
+            alignItems: "center",
+            backgroundColor: saveBusy ? "#f3f4f6" : "#fff",
+          }}
+        >
+          <Text style={{ color: "#111", fontWeight: "900" }}>
+            {saveBusy ? "Saving..." : "Save for Scheduler / Test"}
+          </Text>
+        </Pressable>
+
+        {saveStatus ? (
+          <Text style={{ color: "#065f46", fontWeight: "600" }}>{saveStatus}</Text>
+        ) : null}
       </View>
 
       <Pressable
@@ -308,7 +374,15 @@ export default function GempReportScreen() {
         <Text style={{ color: "#fff", fontWeight: "900" }}>Export to PDF (Annex A)</Text>
       </Pressable>
 
-      <ReportSchedulerCard />
+      <Text style={{ color: "#6b7280" }}>
+        Scheduled email and test email use the latest saved snapshot from this page.
+      </Text>
+
+      <ReportSchedulerCard
+        onBeforeSendTest={async () => {
+          await syncReportForScheduler(false);
+        }}
+      />
     </ScrollView>
   );
 }
