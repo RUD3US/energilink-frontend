@@ -70,6 +70,21 @@ function monthLabel(ms: number) {
   });
 }
 
+function localDayKey(ms: number) {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function localMonthKey(ms: number) {
+  const d = new Date(ms);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
 function sanitizePoints(points: { time: string; value: number }[]) {
   return points.filter(
     (p) =>
@@ -140,7 +155,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
     for (let i = days - 1; i >= 0; i--) {
       const dayMs = startOfDayMs(now - i * 24 * 60 * 60 * 1000);
-      const key = new Date(dayMs).toISOString().slice(0, 10);
+      const key = localDayKey(dayMs);
       buckets.set(key, 0);
     }
 
@@ -166,7 +181,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
           const sliceEnd = Math.min(endOfDayMs(cursor) + 1, segEnd);
           const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
           const dayStart = startOfDayMs(cursor);
-          const key = new Date(dayStart).toISOString().slice(0, 10);
+          const key = localDayKey(dayStart);
 
           if (buckets.has(key)) {
             buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
@@ -178,7 +193,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     }
 
     return Array.from(buckets.keys()).map((key) => {
-      const dayMs = startOfDayMs(new Date(key).getTime());
+      const dayMs = startOfDayMs(new Date(`${key}T00:00:00`).getTime());
       return {
         dayKey: key,
         label: dayLabel(dayMs),
@@ -202,7 +217,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       monthMs.setDate(1);
       monthMs.setHours(0, 0, 0, 0);
       monthMs.setMonth(monthMs.getMonth() - i);
-      const key = new Date(monthMs).toISOString().slice(0, 7);
+      const key = localMonthKey(monthMs.getTime());
       buckets.set(key, 0);
     }
 
@@ -228,7 +243,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
           const sliceEnd = Math.min(endOfMonthMs(cursor) + 1, segEnd);
           const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
           const monthStart = startOfMonthMs(cursor);
-          const key = new Date(monthStart).toISOString().slice(0, 7);
+          const key = localMonthKey(monthStart);
 
           if (buckets.has(key)) {
             buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
