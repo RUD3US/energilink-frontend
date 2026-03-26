@@ -32,7 +32,7 @@ type Row = {
   time: string;
   voltage: number | null;
   current: number | null;
-  powerW: number | null;
+  powerKw: number | null;
   pf: number | null;
   note: string | null;
 };
@@ -96,21 +96,22 @@ function buildRows(
       const measuredPf = nearestValueAtTime(pfPoints, targetMs, matchToleranceMs);
       const note = nearestNoteAtTime(notes, targetMs, matchToleranceMs);
 
-      const derivedPowerW = i == null ? null : v.value * i;
-      const measuredPowerW = measuredPowerKw == null ? null : measuredPowerKw * 1000;
-      const powerW = measuredPowerW ?? derivedPowerW;
+      const derivedPowerKw = i == null ? null : (v.value * i) / 1000;
+      const powerKw = measuredPowerKw ?? derivedPowerKw;
 
       const apparentVA = i == null ? null : v.value * i;
+      const powerWForPf = powerKw == null ? null : powerKw * 1000;
+
       const derivedPf =
-        powerW == null || apparentVA == null || apparentVA <= 0
+        powerWForPf == null || apparentVA == null || apparentVA <= 0
           ? null
-          : Math.max(0, Math.min(1, powerW / apparentVA));
+          : Math.max(0, Math.min(1, powerWForPf / apparentVA));
 
       return {
         time: v.time,
         voltage: v.value,
         current: i,
-        powerW,
+        powerKw,
         pf: measuredPf ?? derivedPf,
         note,
       };
@@ -130,11 +131,11 @@ function buildRows(
 }
 
 function downloadCsv(rows: Row[]) {
-  const header = "time,voltage_V,current_A,power_W,power_factor,note";
+  const header = "time,voltage_V,current_A,power_kW,power_factor,note";
   const body = rows
     .map(
       (r) =>
-        `${r.time},${r.voltage ?? ""},${r.current ?? ""},${r.powerW ?? ""},${r.pf ?? ""},"${(r.note ?? "").replace(/"/g, '""')}"`
+        `${r.time},${r.voltage ?? ""},${r.current ?? ""},${r.powerKw ?? ""},${r.pf ?? ""},"${(r.note ?? "").replace(/"/g, '""')}"`
     )
     .join("\n");
   const csv = `${header}\n${body}`;
@@ -263,7 +264,7 @@ export default function TableScreen() {
               <Text style={{ width: 260, fontWeight: "700" }}>Time</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Voltage (V)</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Current (A)</Text>
-              <Text style={{ width: 140, fontWeight: "700" }}>Power (W)</Text>
+              <Text style={{ width: 140, fontWeight: "700" }}>Power (kW)</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Power Factor</Text>
               <Text style={{ width: 320, fontWeight: "700" }}>Note</Text>
             </View>
@@ -281,7 +282,7 @@ export default function TableScreen() {
                 <Text style={{ width: 260 }}>{new Date(r.time).toLocaleString()}</Text>
                 <Text style={{ width: 140 }}>{r.voltage != null ? r.voltage.toFixed(2) : "—"}</Text>
                 <Text style={{ width: 140 }}>{r.current != null ? r.current.toFixed(3) : "—"}</Text>
-                <Text style={{ width: 140 }}>{r.powerW != null ? r.powerW.toFixed(1) : "—"}</Text>
+                <Text style={{ width: 140 }}>{r.powerKw != null ? r.powerKw.toFixed(3) : "—"}</Text>
                 <Text style={{ width: 140 }}>{r.pf != null ? r.pf.toFixed(3) : "—"}</Text>
                 <Text style={{ width: 320 }}>{r.note || "—"}</Text>
               </View>
