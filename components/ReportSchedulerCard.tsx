@@ -45,7 +45,11 @@ async function confirmAction(title: string, message: string) {
   });
 }
 
-export function ReportSchedulerCard() {
+export function ReportSchedulerCard({
+  onBeforeSendTest,
+}: {
+  onBeforeSendTest?: () => Promise<void>;
+}) {
   const [recipients, setRecipients] = useState<ReportRecipient[]>([]);
   const [newEmail, setNewEmail] = useState("");
   const [schedule, setSchedule] = useState<ReportSchedule>({
@@ -182,8 +186,13 @@ export function ReportSchedulerCard() {
 
     try {
       setSendingTest(true);
-      setSendStatus("Sending test email...");
+      setSendStatus("Preparing latest GEMP data...");
 
+      if (onBeforeSendTest) {
+        await onBeforeSendTest();
+      }
+
+      setSendStatus("Sending test email...");
       const result = await sendTestGempReport();
 
       const sentTo = Array.isArray(result?.sent_to) ? result.sent_to.join(", ") : "";
