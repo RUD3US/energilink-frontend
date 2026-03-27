@@ -1,3 +1,5 @@
+// components/DailyKwhBarCard.tsx
+
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useDailyKwh, type KwhSummary } from "../hooks/useDailyKwh";
@@ -208,12 +210,13 @@ export default function DailyKwhBarCard({
 
   const subtitle =
     activeTab === "daily"
-      ? `Archived power history for the last ${days} days.`
-      : "Monthly kWh synced with the GEMP report tab.";
+      ? `Current month batch: ${result.batchLabel}. Showing ${result.visibleLabel} so far.`
+      : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
 
   const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
   const previousLabel = activeTab === "daily" ? "Previous day kWh" : "Previous month kWh";
   const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
+  const totalLabel = activeTab === "daily" ? "Visible batch kWh" : "Total period kWh";
   const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
 
   const combinedLoading = result.loading || gemp.loading;
@@ -295,7 +298,7 @@ export default function DailyKwhBarCard({
         <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
         <SummaryBox label={previousLabel} value={activeSummary.previous.toFixed(2)} />
         <SummaryBox label={avgLabel} value={activeSummary.avg.toFixed(2)} />
-        <SummaryBox label="Total period kWh" value={activeSummary.total.toFixed(2)} />
+        <SummaryBox label={totalLabel} value={activeSummary.total.toFixed(2)} />
         <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
         <SummaryBox label="Peak kWh" value={activeSummary.peakKwh.toFixed(2)} />
       </View>
@@ -375,6 +378,11 @@ export default function DailyKwhBarCard({
         </ScrollView>
       )}
 
+      <Text style={{ color: "#6b7280", fontSize: 12 }}>
+        {activeTab === "daily"
+          ? `Daily tab shows only the current month batch (${result.batchLabel}). Monthly totals still include the full current month.`
+          : "Highest bar in this monthly window."}
+      </Text>
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         Highest bar in this window: {max.toFixed(2)} kWh
       </Text>
