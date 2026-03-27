@@ -117,6 +117,10 @@ export type GempHeader = {
   address?: string;
   fax?: string;
   region?: string;
+  defaultBuildingDesc?: string;
+  defaultGrossArea?: string;
+  defaultAirconArea?: string;
+  defaultOccupants?: string;
   preparedBy?: string;
   preparedByDesignation?: string;
   notedBy?: string;
@@ -145,6 +149,23 @@ export type GempReportPayload = {
   header: GempHeader;
   rows: GempRow[];
   stats: GempStats;
+};
+
+export type MonthlyBillingRate = {
+  year: number;
+  month: number;
+  cost_per_kwh: number;
+  updated_at: string;
+};
+
+export type MonthlyBillingRow = {
+  year: number;
+  month: number;
+  month_label: string;
+  kwh: number;
+  cost_per_kwh?: number | null;
+  bill_php?: number | null;
+  updated_at?: string | null;
 };
 
 export async function getReportRecipients() {
@@ -232,5 +253,66 @@ export async function sendTestGempReport(recipients?: string[]) {
     ok: boolean;
     sent_to: string[];
     message?: string;
+  }>;
+}
+
+export async function getMonthlyBillingRates(year: number) {
+  const qs = new URLSearchParams({ year: String(year) }).toString();
+  const res = await fetch(`${API_BASE}/billing/monthly-rates?${qs}`);
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+  return res.json() as Promise<MonthlyBillingRate[]>;
+}
+
+export async function saveMonthlyBillingRate(
+  token: string,
+  body: {
+    year: number;
+    month: number;
+    cost_per_kwh: number;
+  }
+) {
+  const res = await fetch(`${API_BASE}/billing/monthly-rates`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+  return res.json() as Promise<MonthlyBillingRate>;
+}
+
+export async function getMonthlyBillingSummary(params: {
+  year: number;
+  device?: string;
+  field?: string;
+}) {
+  const qs = new URLSearchParams({
+    year: String(params.year),
+    device: params.device ?? "pi4",
+    field: params.field ?? "power",
+  }).toString();
+
+  const res = await fetch(`${API_BASE}/billing/monthly-summary?${qs}`);
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+  return res.json() as Promise<MonthlyBillingRow[]>;
+}
+
+export async function partialResetReadings(token: string, device?: string) {
+  const res = await fetch(`${API_BASE}/admin/reset/readings`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(device ? { device } : {}),
+  });
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+  return res.json() as Promise<{
+    ok: boolean;
+    device?: string | null;
+    deleted_realtime_points: number;
+    deleted_notes: number;
   }>;
 }
