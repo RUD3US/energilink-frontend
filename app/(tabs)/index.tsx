@@ -27,6 +27,7 @@ import { createNote, deleteNote } from "../../lib/api";
 
 import { AuthPanel } from "../../components/AuthPanel";
 import DailyKwhBarCard from "../../components/DailyKwhBarCard";
+import MonthlyBillingCard from "../../components/MonthlyBillingCard";
 import MonitoringSummaryRow from "../../components/MonitoringSummaryRow";
 import { NotesBelowGraph } from "../../components/NotesBelowGraph";
 import { SimpleLineChart } from "../../components/SimpleLineChart";
@@ -503,6 +504,8 @@ export default function TabOneScreen() {
           </ChartCard>
         </View>
       </View>
+
+      <MonthlyBillingCard token={token} device={DEFAULT_DEVICE} field={FIELD_POWER} />
 
       <DailyKwhBarCard days={14} />
 
