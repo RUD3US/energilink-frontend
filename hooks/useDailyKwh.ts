@@ -1,3 +1,5 @@
+// hooks/useDailyKwh.ts
+
 import { useEffect, useMemo } from "react";
 import { DEFAULT_DEVICE, FIELD_POWER } from "../config";
 import { useRealtime } from "./useRealtime";
@@ -24,6 +26,9 @@ export type KwhSummary = {
 };
 
 const POWER_POINTS_ARE_WATTS = true;
+const MAX_GAP_HOURS = 6;
+const ARCHIVE_POINTS_PER_DAY = 96;
+const API_POINT_LIMIT = 5000;
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -123,13 +128,55 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
   };
 }
 
+function getDaysInMonth(year: number, monthIndex: number) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function getBatchRange(now: Date) {
+  const year = now.getFullYear();
+  const monthIndex = now.getMonth();
+  const todayDay = now.getDate();
+  const daysInMonth = getDaysInMonth(year, monthIndex);
+
+  let batchStartDay = 1;
+  let batchEndDay = Math.min(14, daysInMonth);
+
+  if (todayDay >= 15 && todayDay <= 28) {
+    batchStartDay = 15;
+    batchEndDay = Math.min(28, daysInMonth);
+  } else if (todayDay >= 29) {
+    batchStartDay = 29;
+    batchEndDay = daysInMonth;
+  }
+
+  return {
+    year,
+    monthIndex,
+    todayDay,
+    daysInMonth,
+    batchStartDay,
+    batchEndDay,
+  };
+}
+
+function buildRangeLabel(year: number, monthIndex: number, startDay: number, endDay: number) {
+  const start = new Date(year, monthIndex, startDay);
+  const end = new Date(year, monthIndex, endDay);
+  const month = start.toLocaleDateString(undefined, { month: "short" });
+  return `${month} ${start.getDate()}-${end.getDate()}`;
+}
+
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   const powerRT = useRealtime(device, FIELD_POWER);
 
   const refresh = () => {
-    const estimatedDailyPoints = Math.max(days * 48, 500);
-    const estimatedMonthlyPoints = Math.max(months * 31 * 48, 500);
-    const estimatedPoints = Math.max(estimatedDailyPoints, estimatedMonthlyPoints);
+    const now = new Date();
+    const { daysInMonth } = getBatchRange(now);
+    const estimatedPoints = Math.min(
+      Math.max(daysInMonth * ARCHIVE_POINTS_PER_DAY + 128, 500),
+      API_POINT_LIMIT
+    );
+
     powerRT.refresh(String(estimatedPoints));
   };
 
@@ -147,16 +194,36 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       .sort((a, b) => a.timeMs - b.timeMs);
   }, [powerRT.points]);
 
+  const batchInfo = useMemo(() => {
+    const range = getBatchRange(new Date());
+    return {
+      ...range,
+      batchLabel: buildRangeLabel(
+        range.year,
+        range.monthIndex,
+        range.batchStartDay,
+        range.batchEndDay
+      ),
+      visibleLabel: buildRangeLabel(
+        range.year,
+        range.monthIndex,
+        range.batchStartDay,
+        range.todayDay
+      ),
+    };
+  }, [sorted.length]);
+
   const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
-    const now = Date.now();
-    const fromMs = startOfDayMs(now - (days - 1) * 24 * 60 * 60 * 1000);
+    const { year, monthIndex, todayDay, batchStartDay } = batchInfo;
+
+    const fromMs = new Date(year, monthIndex, batchStartDay, 0, 0, 0, 0).getTime();
+    const toMsLimit = new Date(year, monthIndex, todayDay, 23, 59, 59, 999).getTime();
 
     const buckets = new Map<string, number>();
 
-    for (let i = days - 1; i >= 0; i--) {
-      const dayMs = startOfDayMs(now - i * 24 * 60 * 60 * 1000);
-      const key = localDayKey(dayMs);
-      buckets.set(key, 0);
+    for (let day = batchStartDay; day <= todayDay; day++) {
+      const dayMs = new Date(year, monthIndex, day, 0, 0, 0, 0).getTime();
+      buckets.set(localDayKey(dayMs), 0);
     }
 
     if (sorted.length >= 2) {
@@ -167,12 +234,12 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
         if (next.timeMs <= fromMs) continue;
 
         const segStart = Math.max(current.timeMs, fromMs);
-        const segEnd = next.timeMs;
+        const segEnd = Math.min(next.timeMs, toMsLimit + 1);
 
         if (segEnd <= segStart) continue;
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
-        if (gapHours > 6) continue;
+        if (gapHours > MAX_GAP_HOURS) continue;
         if (current.power < 0) continue;
 
         let cursor = segStart;
@@ -200,7 +267,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
         kwh: Number((buckets.get(key) || 0).toFixed(2)),
       };
     });
-  }, [sorted, days]);
+  }, [sorted, batchInfo]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
     const now = Date.now();
@@ -234,7 +301,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
         if (segEnd <= segStart) continue;
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
-        if (gapHours > 6) continue;
+        if (gapHours > MAX_GAP_HOURS) continue;
         if (current.power < 0) continue;
 
         let cursor = segStart;
@@ -282,6 +349,12 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     monthlyData,
     dailySummary,
     monthlySummary,
+    batchLabel: batchInfo.batchLabel,
+    visibleLabel: batchInfo.visibleLabel,
+    batchStartDay: batchInfo.batchStartDay,
+    batchEndDay: batchInfo.batchEndDay,
+    todayDay: batchInfo.todayDay,
+    daysInMonth: batchInfo.daysInMonth,
 
     refresh,
     loading: powerRT.loading,
