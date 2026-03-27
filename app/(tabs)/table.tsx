@@ -14,7 +14,6 @@ import {
   API_BASE,
   DEFAULT_DEVICE,
   FIELD_CURRENT,
-  FIELD_POWER,
   FIELD_POWER_FACTOR,
   FIELD_VOLTAGE,
 } from "../../config";
@@ -32,7 +31,7 @@ type Row = {
   time: string;
   voltage: number | null;
   current: number | null;
-  powerKw: number | null;
+  powerW: number | null;
   pf: number | null;
   note: string | null;
 };
@@ -81,37 +80,35 @@ function nearestNoteAtTime(notes: NoteRow[], targetMs: number, toleranceMs: numb
 function buildRows(
   voltagePoints: { time: string; value: number }[],
   currentPoints: { time: string; value: number }[],
-  powerKwPoints: { time: string; value: number }[],
+  powerPoints: { time: string; value: number }[],
   pfPoints: { time: string; value: number }[],
   notes: NoteRow[]
 ): Row[] {
-  const matchToleranceMs = 30_000;
+  const powerMatchToleranceMs = 75_000;
+  const archiveMatchToleranceMs = 16 * 60_000;
 
-  const rawRows = voltagePoints
-    .map((v) => {
-      const targetMs = toMs(v.time);
+  const rawRows = powerPoints
+    .map((p) => {
+      const targetMs = toMs(p.time);
 
-      const i = nearestValueAtTime(currentPoints, targetMs, matchToleranceMs);
-      const measuredPowerKw = nearestValueAtTime(powerKwPoints, targetMs, matchToleranceMs);
-      const measuredPf = nearestValueAtTime(pfPoints, targetMs, matchToleranceMs);
-      const note = nearestNoteAtTime(notes, targetMs, matchToleranceMs);
+      const v = nearestValueAtTime(voltagePoints, targetMs, archiveMatchToleranceMs);
+      const i = nearestValueAtTime(currentPoints, targetMs, archiveMatchToleranceMs);
+      const measuredPf = nearestValueAtTime(pfPoints, targetMs, archiveMatchToleranceMs);
+      const note = nearestNoteAtTime(notes, targetMs, archiveMatchToleranceMs);
 
-      const derivedPowerKw = i == null ? null : (v.value * i) / 1000;
-      const powerKw = measuredPowerKw ?? derivedPowerKw;
+      const powerW = p.value;
 
-      const apparentVA = i == null ? null : v.value * i;
-      const powerWForPf = powerKw == null ? null : powerKw * 1000;
-
+      const apparentVA = v == null || i == null ? null : v * i;
       const derivedPf =
-        powerWForPf == null || apparentVA == null || apparentVA <= 0
+        powerW == null || apparentVA == null || apparentVA <= 0
           ? null
-          : Math.max(0, Math.min(1, powerWForPf / apparentVA));
+          : Math.max(0, Math.min(1, powerW / apparentVA));
 
       return {
-        time: v.time,
-        voltage: v.value,
+        time: p.time,
+        voltage: v,
         current: i,
-        powerKw,
+        powerW,
         pf: measuredPf ?? derivedPf,
         note,
       };
@@ -131,11 +128,11 @@ function buildRows(
 }
 
 function downloadCsv(rows: Row[]) {
-  const header = "time,voltage_V,current_A,power_kW,power_factor,note";
+  const header = "time,voltage_V,current_A,power_W,power_factor,note";
   const body = rows
     .map(
       (r) =>
-        `${r.time},${r.voltage ?? ""},${r.current ?? ""},${r.powerKw ?? ""},${r.pf ?? ""},"${(r.note ?? "").replace(/"/g, '""')}"`
+        `${r.time},${r.voltage ?? ""},${r.current ?? ""},${r.powerW ?? ""},${r.pf ?? ""},"${(r.note ?? "").replace(/"/g, '""')}"`
     )
     .join("\n");
   const csv = `${header}\n${body}`;
@@ -164,7 +161,7 @@ export default function TableScreen() {
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
-  const powerRT = useRealtime(DEFAULT_DEVICE, FIELD_POWER);
+  const powerRT = useRealtime(DEFAULT_DEVICE, "power_realtime");
   const pfRT = useRealtime(DEFAULT_DEVICE, FIELD_POWER_FACTOR);
 
   const refreshNotes = async (requestedLimit: number) => {
@@ -237,7 +234,11 @@ export default function TableScreen() {
         </Text>
 
         <Text style={{ color: "#555" }}>
-          Scroll to the bottom of the table to load 100 older rows.
+          Power values below now follow the same source as the realtime power graph.
+        </Text>
+
+        <Text style={{ color: "#555" }}>
+          Voltage, current, and PF may update less often because they still come from archived readings.
         </Text>
 
         {notesError ? <Text style={{ color: "red" }}>Notes error: {notesError}</Text> : null}
@@ -264,7 +265,7 @@ export default function TableScreen() {
               <Text style={{ width: 260, fontWeight: "700" }}>Time</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Voltage (V)</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Current (A)</Text>
-              <Text style={{ width: 140, fontWeight: "700" }}>Power (kW)</Text>
+              <Text style={{ width: 140, fontWeight: "700" }}>Power (W)</Text>
               <Text style={{ width: 140, fontWeight: "700" }}>Power Factor</Text>
               <Text style={{ width: 320, fontWeight: "700" }}>Note</Text>
             </View>
@@ -282,7 +283,7 @@ export default function TableScreen() {
                 <Text style={{ width: 260 }}>{new Date(r.time).toLocaleString()}</Text>
                 <Text style={{ width: 140 }}>{r.voltage != null ? r.voltage.toFixed(2) : "—"}</Text>
                 <Text style={{ width: 140 }}>{r.current != null ? r.current.toFixed(3) : "—"}</Text>
-                <Text style={{ width: 140 }}>{r.powerKw != null ? r.powerKw.toFixed(3) : "—"}</Text>
+                <Text style={{ width: 140 }}>{r.powerW != null ? r.powerW.toFixed(1) : "—"}</Text>
                 <Text style={{ width: 140 }}>{r.pf != null ? r.pf.toFixed(3) : "—"}</Text>
                 <Text style={{ width: 320 }}>{r.note || "—"}</Text>
               </View>
