@@ -256,8 +256,16 @@ export async function sendTestGempReport(recipients?: string[]) {
   }>;
 }
 
-export async function getMonthlyBillingRates(year: number) {
-  const qs = new URLSearchParams({ year: String(year) }).toString();
+export async function getMonthlyBillingRates(
+  year: number,
+  options?: { device?: string; field?: string }
+) {
+  const qs = new URLSearchParams({
+    year: String(year),
+    device: options?.device ?? "pi4",
+    field: options?.field ?? "power",
+  }).toString();
+
   const res = await fetch(`${API_BASE}/billing/monthly-rates?${qs}`);
   if (!res.ok) throw new Error(await readErrorMessage(res));
   return res.json() as Promise<MonthlyBillingRate[]>;
@@ -269,9 +277,15 @@ export async function saveMonthlyBillingRate(
     year: number;
     month: number;
     cost_per_kwh: number;
-  }
+  },
+  options?: { device?: string; field?: string }
 ) {
-  const res = await fetch(`${API_BASE}/billing/monthly-rates`, {
+  const qs = new URLSearchParams({
+    device: options?.device ?? "pi4",
+    field: options?.field ?? "power",
+  }).toString();
+
+  const res = await fetch(`${API_BASE}/billing/monthly-rates?${qs}`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
