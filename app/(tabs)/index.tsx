@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -50,6 +50,15 @@ type NoteBelow = {
   valueAtNote: number | null;
 };
 
+type HistoryRow = {
+  time: string;
+  rms_voltage: number | null;
+  rms_current: number | null;
+  power: number | null;
+  power_factor: number | null;
+  note?: string | null;
+};
+
 type PowerNoteMode = "intervaled" | "realtime";
 
 const FIELD_REALTIME_POWER = "power_realtime";
@@ -60,6 +69,7 @@ const REALTIME_POWER_LIMIT = "2000";
 const ARCHIVE_REFRESH_MS = 30 * 60 * 1000;
 const REALTIME_POWER_REFRESH_MS = 30 * 1000;
 const NOTES_REFRESH_MS = 15 * 1000;
+const HISTORY_REFRESH_MS = 30 * 1000;
 
 const PAGE_PADDING = 16;
 const CARD_GAP = 14;
@@ -247,10 +257,34 @@ export default function TabOneScreen() {
   const [selectedIntervaledPowerPoint, setSelectedIntervaledPowerPoint] = useState<Point | null>(null);
   const [selectedRealtimePowerPoint, setSelectedRealtimePowerPoint] = useState<Point | null>(null);
 
+  const [latestHistory, setLatestHistory] = useState<HistoryRow | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
   const manualTimestampPreview = useMemo(
     () => normalizeTimestampInput(manualTimestamp),
     [manualTimestamp]
   );
+
+  const refreshLatestHistory = useCallback(async () => {
+    try {
+      setHistoryError(null);
+
+      const qs = new URLSearchParams({
+        device: DEFAULT_DEVICE,
+        limit: "1",
+      }).toString();
+
+      const res = await fetch(`${API_BASE}/public/history?${qs}`);
+      if (!res.ok) {
+        throw new Error(`history request failed (${res.status})`);
+      }
+
+      const data = (await res.json()) as HistoryRow[];
+      setLatestHistory(Array.isArray(data) && data.length ? data[0] : null);
+    } catch (e: any) {
+      setHistoryError(String(e?.message ?? e));
+    }
+  }, []);
 
   useInterval(() => voltageRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
   useInterval(() => currentRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
@@ -259,6 +293,7 @@ export default function TabOneScreen() {
 
   useInterval(() => realtimePowerRT.refresh(REALTIME_POWER_LIMIT), REALTIME_POWER_REFRESH_MS);
   useInterval(() => powerNotesQ.refresh(200), NOTES_REFRESH_MS);
+  useInterval(() => refreshLatestHistory(), HISTORY_REFRESH_MS);
 
   useEffect(() => {
     voltageRT.refresh(ARCHIVE_LIMIT);
@@ -267,13 +302,14 @@ export default function TabOneScreen() {
     pfRT.refresh(ARCHIVE_LIMIT);
     realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
     powerNotesQ.refresh(200);
-  }, []);
+    refreshLatestHistory();
+  }, [refreshLatestHistory]);
 
-  const latestVoltage = latestValue(voltagePoints);
-  const latestCurrent = latestValue(currentPoints);
+  const latestVoltage = latestHistory?.rms_voltage ?? null;
+  const latestCurrent = latestHistory?.rms_current ?? null;
   const latestIntervaledPower = latestValue(intervaledPowerPoints);
   const latestRealtimePower = latestValue(realtimePowerPoints);
-  const latestPF = latestValue(pfPoints);
+  const latestPF = latestHistory?.power_factor ?? null;
 
   const intervaledPowerChartNotes = useMemo<ChartNote[]>(
     () =>
@@ -427,6 +463,7 @@ export default function TabOneScreen() {
         <Text style={{ color: "red" }}>realtime power error: {realtimePowerRT.error}</Text>
       ) : null}
       {pfRT.error ? <Text style={{ color: "red" }}>power factor error: {pfRT.error}</Text> : null}
+      {historyError ? <Text style={{ color: "red" }}>history error: {historyError}</Text> : null}
 
       <Pressable
         onPress={() => {
@@ -436,6 +473,7 @@ export default function TabOneScreen() {
           pfRT.refresh(ARCHIVE_LIMIT);
           realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
           powerNotesQ.refresh(200);
+          refreshLatestHistory();
         }}
         style={{
           padding: 10,
