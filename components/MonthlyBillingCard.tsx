@@ -132,7 +132,7 @@ export default function MonthlyBillingCard({
           : row.cost_per_kwh ?? null;
 
       const finalRate =
-        parsedRate !== null && Number.isFinite(parsedRate)
+        parsedRate !== null && Number.isFinite(parsedRate) && Number(parsedRate) > 0
           ? Number(parsedRate)
           : null;
 
@@ -186,13 +186,20 @@ export default function MonthlyBillingCard({
       setSavingKey(key);
       setStatus("");
 
-      await saveMonthlyBillingRate(token, {
-        year: row.year,
-        month: row.month,
-        cost_per_kwh: parsed,
-      });
+      await saveMonthlyBillingRate(
+        token,
+        {
+          year: row.year,
+          month: row.month,
+          cost_per_kwh: parsed,
+        },
+        {
+          device,
+          field,
+        }
+      );
 
-      setStatus(`Saved ${row.month_label} ${row.year} billing rate.`);
+      setStatus(`Saved ${row.month_label} ${row.year} billing record.`);
       await refresh();
     } catch (e: any) {
       Alert.alert("Save failed", String(e?.message ?? e));
@@ -226,7 +233,7 @@ export default function MonthlyBillingCard({
             Monthly Cost Calculator
           </Text>
           <Text style={{ color: "#555" }}>
-            Separate from GEMP report. Saves per exact year and month.
+            Saves kWh, Php/kWh, and bill per exact month and year.
           </Text>
         </View>
 
@@ -430,7 +437,7 @@ export default function MonthlyBillingCard({
       </ScrollView>
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Billing rate is saved by exact year + month. This does not change the GEMP report.
+        Past months stay saved. The current live month keeps updating until the month changes.
       </Text>
     </View>
   );
