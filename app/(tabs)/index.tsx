@@ -456,6 +456,8 @@ export default function TabOneScreen() {
         kwhDays={14}
       />
 
+      <MonthlyBillingCard token={token} device={DEFAULT_DEVICE} field={FIELD_POWER} />
+
       <View
         style={{
           flexDirection: chartRowDirection,
@@ -504,8 +506,6 @@ export default function TabOneScreen() {
           </ChartCard>
         </View>
       </View>
-
-      <MonthlyBillingCard token={token} device={DEFAULT_DEVICE} field={FIELD_POWER} />
 
       <DailyKwhBarCard days={14} />
 
