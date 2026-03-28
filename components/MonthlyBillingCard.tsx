@@ -21,6 +21,8 @@ type Props = {
   field?: string;
 };
 
+type DraftRateMap = Record<string, string>;
+
 function SummaryBox({
   label,
   value,
@@ -64,13 +66,8 @@ function safeMoney(value: unknown) {
   return `Php ${n.toFixed(2)}`;
 }
 
-function safeRate(value: unknown) {
-  const n = toNumber(value);
-  return n > 0 ? n.toFixed(4) : "—";
-}
-
-function monthShort(monthLabel: string) {
-  return monthLabel?.slice(0, 3) || "—";
+function makeDraftKey(year: number, month: number) {
+  return `${year}-${month}`;
 }
 
 export default function MonthlyBillingCard({
@@ -80,9 +77,9 @@ export default function MonthlyBillingCard({
 }: Props) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [rows, setRows] = useState<MonthlyBillingRow[]>([]);
-  const [draftRates, setDraftRates] = useState<Record<number, string>>({});
+  const [draftRates, setDraftRates] = useState<DraftRateMap>({});
   const [loading, setLoading] = useState(false);
-  const [savingMonth, setSavingMonth] = useState<number | null>(null);
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState("");
 
@@ -97,18 +94,20 @@ export default function MonthlyBillingCard({
         field,
       });
 
-      setRows(Array.isArray(result) ? result : []);
+      const normalized = Array.isArray(result) ? result : [];
+      setRows(normalized);
 
       setDraftRates((prev) => {
         const next = { ...prev };
-        for (const row of result ?? []) {
-          if (!(row.month in next)) {
-            next[row.month] =
-              row.cost_per_kwh !== null && row.cost_per_kwh !== undefined
-                ? String(row.cost_per_kwh)
-                : "";
-          }
+
+        for (const row of normalized) {
+          const key = makeDraftKey(row.year, row.month);
+          next[key] =
+            row.cost_per_kwh !== null && row.cost_per_kwh !== undefined
+              ? String(row.cost_per_kwh)
+              : "";
         }
+
         return next;
       });
     } catch (e: any) {
@@ -119,22 +118,32 @@ export default function MonthlyBillingCard({
   }, [year, device, field]);
 
   useEffect(() => {
+    setStatus("");
     refresh();
   }, [refresh]);
 
   const displayRows = useMemo(() => {
     return rows.map((row) => {
-      const draft = draftRates[row.month];
+      const key = makeDraftKey(row.year, row.month);
+      const rawDraft = draftRates[key] ?? "";
       const parsedRate =
-        typeof draft === "string" && draft.trim() !== "" ? Number(draft) : row.cost_per_kwh ?? null;
+        rawDraft.trim() !== ""
+          ? Number(rawDraft)
+          : row.cost_per_kwh ?? null;
 
-      const finalRate = Number.isFinite(parsedRate as number) ? Number(parsedRate) : null;
-      const billPhp = finalRate !== null ? Number((row.kwh * finalRate).toFixed(2)) : null;
+      const finalRate =
+        parsedRate !== null && Number.isFinite(parsedRate)
+          ? Number(parsedRate)
+          : null;
+
+      const billPhp =
+        finalRate !== null ? Number((row.kwh * finalRate).toFixed(2)) : null;
 
       return {
         ...row,
         display_rate: finalRate,
         display_bill_php: billPhp,
+        draft_key: key,
       };
     });
   }, [rows, draftRates]);
@@ -155,14 +164,15 @@ export default function MonthlyBillingCard({
     return displayRows.reduce((sum, row) => sum + (row.kwh ?? 0), 0);
   }, [displayRows]);
 
-  async function handleSave(month: number) {
-    const raw = draftRates[month] ?? "";
+  async function handleSave(row: MonthlyBillingRow) {
+    const key = makeDraftKey(row.year, row.month);
+    const raw = draftRates[key] ?? "";
     const parsed = Number(raw);
 
     if (!token) {
       Alert.alert(
         "Login required",
-        "Billing rate saving needs a logged-in account because the backend route is protected."
+        "Billing rate saving needs a logged-in account."
       );
       return;
     }
@@ -173,27 +183,22 @@ export default function MonthlyBillingCard({
     }
 
     try {
-      setSavingMonth(month);
+      setSavingKey(key);
       setStatus("");
 
       await saveMonthlyBillingRate(token, {
-        year,
-        month,
+        year: row.year,
+        month: row.month,
         cost_per_kwh: parsed,
       });
 
-      setStatus(`Saved ${monthShort(monthLabelFromNumber(month))} ${year} billing rate.`);
+      setStatus(`Saved ${row.month_label} ${row.year} billing rate.`);
       await refresh();
     } catch (e: any) {
       Alert.alert("Save failed", String(e?.message ?? e));
     } finally {
-      setSavingMonth(null);
+      setSavingKey(null);
     }
-  }
-
-  function monthLabelFromNumber(month: number) {
-    const row = rows.find((r) => r.month === month);
-    return row?.month_label || new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "long" });
   }
 
   return (
@@ -221,7 +226,7 @@ export default function MonthlyBillingCard({
             Monthly Cost Calculator
           </Text>
           <Text style={{ color: "#555" }}>
-            Separate from GEMP report. Uses monthly kWh and your saved Php/kWh rate.
+            Separate from GEMP report. Saves per exact year and month.
           </Text>
         </View>
 
@@ -301,11 +306,19 @@ export default function MonthlyBillingCard({
         />
         <SummaryBox
           label="Current rate (Php/kWh)"
-          value={currentMonthRow?.display_rate != null ? currentMonthRow.display_rate.toFixed(4) : "—"}
+          value={
+            currentMonthRow?.display_rate != null
+              ? currentMonthRow.display_rate.toFixed(4)
+              : "—"
+          }
         />
         <SummaryBox
           label="Current month bill"
-          value={currentMonthRow?.display_bill_php != null ? safeMoney(currentMonthRow.display_bill_php) : "—"}
+          value={
+            currentMonthRow?.display_bill_php != null
+              ? safeMoney(currentMonthRow.display_bill_php)
+              : "—"
+          }
         />
         <SummaryBox label="Year total kWh" value={yearTotalKwh.toFixed(2)} />
         <SummaryBox label="Year total bill" value={safeMoney(yearTotalBill)} />
@@ -337,11 +350,11 @@ export default function MonthlyBillingCard({
 
           {displayRows.map((row) => {
             const isCurrent = currentMonth === row.month;
-            const isSaving = savingMonth === row.month;
+            const isSaving = savingKey === row.draft_key;
 
             return (
               <View
-                key={`${row.year}-${row.month}`}
+                key={row.draft_key}
                 style={{
                   flexDirection: "row",
                   gap: 8,
@@ -360,11 +373,11 @@ export default function MonthlyBillingCard({
 
                 <View style={{ width: 170 }}>
                   <TextInput
-                    value={draftRates[row.month] ?? ""}
+                    value={draftRates[row.draft_key] ?? ""}
                     onChangeText={(text) =>
                       setDraftRates((prev) => ({
                         ...prev,
-                        [row.month]: text,
+                        [row.draft_key]: text,
                       }))
                     }
                     keyboardType={Platform.OS === "ios" ? "decimal-pad" : "numeric"}
@@ -388,7 +401,7 @@ export default function MonthlyBillingCard({
 
                 <View style={{ width: 120 }}>
                   <Pressable
-                    onPress={() => handleSave(row.month)}
+                    onPress={() => handleSave(row)}
                     disabled={!token || isSaving}
                     style={{
                       paddingVertical: 10,
@@ -417,7 +430,7 @@ export default function MonthlyBillingCard({
       </ScrollView>
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        This card is for user-side cost computation only. It does not change the GEMP report.
+        Billing rate is saved by exact year + month. This does not change the GEMP report.
       </Text>
     </View>
   );
