@@ -15,8 +15,15 @@ import {
   FIELD_CURRENT,
   FIELD_POWER,
   FIELD_POWER_FACTOR,
+  FIELD_REALTIME_POWER,
   FIELD_VOLTAGE,
   METRIC_POWER,
+  ARCHIVE_INTERVAL_LABEL,
+  REALTIME_INTERVAL_LABEL,
+  ARCHIVE_REFRESH_MS,
+  REALTIME_POWER_REFRESH_MS,
+  NOTES_REFRESH_MS,
+  HISTORY_REFRESH_MS,
 } from "../../config";
 
 import { useAuth } from "../../hooks/useAuth";
@@ -61,15 +68,8 @@ type HistoryRow = {
 
 type PowerNoteMode = "intervaled" | "realtime";
 
-const FIELD_REALTIME_POWER = "power_realtime";
-
 const ARCHIVE_LIMIT = "500";
 const REALTIME_POWER_LIMIT = "2000";
-
-const ARCHIVE_REFRESH_MS = 30 * 60 * 1000;
-const REALTIME_POWER_REFRESH_MS = 30 * 1000;
-const NOTES_REFRESH_MS = 15 * 1000;
-const HISTORY_REFRESH_MS = 30 * 1000;
 
 const PAGE_PADDING = 16;
 const CARD_GAP = 14;
@@ -506,7 +506,7 @@ export default function TabOneScreen() {
       >
         <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
-            title="Voltage (30-minute archive)"
+            title={`Voltage (${ARCHIVE_INTERVAL_LABEL})`}
             latestLabel="Latest voltage"
             latestValueText={formatLatestValue(latestVoltage, 2, "V")}
             minHeight={390}
@@ -526,7 +526,7 @@ export default function TabOneScreen() {
 
         <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
-            title="Current (30-minute archive)"
+            title={`Current (${ARCHIVE_INTERVAL_LABEL})`}
             latestLabel="Latest current"
             latestValueText={formatLatestValue(latestCurrent, 3, "A")}
             minHeight={390}
@@ -557,7 +557,7 @@ export default function TabOneScreen() {
       >
         <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
-            title="Intervaled Power Graph (30-minute archive)"
+            title={`Intervaled Power Graph (${ARCHIVE_INTERVAL_LABEL})`}
             latestLabel="Latest archived power"
             latestValueText={formatLatestValue(latestIntervaledPower, 2, "W")}
             minHeight={470}
@@ -595,7 +595,7 @@ export default function TabOneScreen() {
 
         <View style={{ flex: 1, minWidth: 0 }}>
           <ChartCard
-            title="Realtime Power Graph (30 seconds)"
+            title={`Realtime Power Graph (${REALTIME_INTERVAL_LABEL})`}
             latestLabel="Latest realtime power"
             latestValueText={formatLatestValue(latestRealtimePower, 2, "W")}
             minHeight={470}
@@ -671,7 +671,7 @@ export default function TabOneScreen() {
 
       <View>
         <ChartCard
-          title="Power Factor (30-minute archive)"
+          title={`Power Factor (${ARCHIVE_INTERVAL_LABEL})`}
           latestLabel="Latest power factor"
           latestValueText={formatLatestValue(latestPF, 3)}
           minHeight={390}
