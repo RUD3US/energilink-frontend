@@ -47,6 +47,19 @@ function latestNonNull(
   return null;
 }
 
+function escapeCsvValue(value: string | number | null | undefined) {
+  if (value === null || value === undefined) return "";
+  const stringValue = String(value);
+  if (
+    stringValue.includes(",") ||
+    stringValue.includes('"') ||
+    stringValue.includes("\n")
+  ) {
+    return `"${stringValue.replace(/"/g, '""')}"`;
+  }
+  return stringValue;
+}
+
 export default function TableScreen() {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,6 +103,52 @@ export default function TableScreen() {
   useEffect(() => {
     fetchHistory(false);
   }, [fetchHistory]);
+
+  const exportToCSV = useCallback(() => {
+    if (!rows.length) return;
+
+    if (typeof document === "undefined") {
+      setError("CSV export is only available on web.");
+      return;
+    }
+
+    const headers = [
+      "Time",
+      "Voltage (V)",
+      "Current (A)",
+      "Power (W)",
+      "Power Factor",
+      "Note",
+    ];
+
+    const csvRows = rows.map((row) => [
+      formatTime(row.time),
+      row.rms_voltage ?? "",
+      row.rms_current ?? "",
+      row.power ?? "",
+      row.power_factor ?? "",
+      row.note ?? "",
+    ]);
+
+    const csvContent = [headers, ...csvRows]
+      .map((row) => row.map((cell) => escapeCsvValue(cell)).join(","))
+      .join("\n");
+
+    const blob = new Blob([csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+
+    link.href = url;
+    link.download = `history-${stamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [rows]);
 
   const latestVoltage = useMemo(() => latestNonNull(rows, "rms_voltage"), [rows]);
   const latestCurrent = useMemo(() => latestNonNull(rows, "rms_current"), [rows]);
@@ -193,22 +252,40 @@ export default function TableScreen() {
           </View>
         </View>
 
-        <Pressable
-          onPress={() => fetchHistory(true)}
-          style={{
-            alignSelf: "flex-start",
-            paddingVertical: 10,
-            paddingHorizontal: 14,
-            borderRadius: 10,
-            borderWidth: 1,
-            borderColor: "#d1d5db",
-            backgroundColor: "#fff",
-          }}
-        >
-          <Text style={{ fontWeight: "700" }}>
-            {refreshing ? "Refreshing..." : "Refresh table"}
-          </Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <Pressable
+            onPress={() => fetchHistory(true)}
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>
+              {refreshing ? "Refreshing..." : "Refresh table"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={exportToCSV}
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#bfdbfe",
+              backgroundColor: "#eff6ff",
+              opacity: rows.length ? 1 : 0.6,
+            }}
+          >
+            <Text style={{ fontWeight: "700", color: "#1d4ed8" }}>Export CSV</Text>
+          </Pressable>
+        </View>
 
         {error ? <Text style={{ color: "red" }}>history error: {error}</Text> : null}
       </View>
