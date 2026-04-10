@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_DEVICE, API_BASE_URL } from "../config";
+import { DEFAULT_DEVICE } from "../config";
 
 export type DailyKwhBarPoint = {
   dayKey: string;
@@ -31,8 +31,16 @@ type HistoryPoint = {
   note?: string | null;
 };
 
+const API_HISTORY_LIMIT = 2000;
 const MAX_GAP_HOURS = 6;
-const API_HISTORY_LIMIT = 5000;
+
+const API_BASE_URL =
+  (
+    (typeof process !== "undefined" &&
+      typeof process.env !== "undefined" &&
+      process.env.EXPO_PUBLIC_API_BASE_URL) ||
+    "https://energilink-backend.onrender.com"
+  ).replace(/\/+$/, "");
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -165,6 +173,7 @@ function isValidHistoryPoint(p: HistoryPoint) {
   if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
   if (p.power < 0) return false;
 
+  // Main fix: ignore invalid rows where both voltage and current are zero
   if (p.rms_voltage === 0 && p.rms_current === 0) return false;
 
   return true;
@@ -180,17 +189,29 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       setLoading(true);
       setError(null);
 
-      const base = String(API_BASE_URL || "").replace(/\/+$/, "");
-      const url = `${base}/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
-
+      const url = `${API_BASE_URL}/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
       const res = await fetch(url);
+      const text = await res.text();
 
       if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
       }
 
-      const data = await res.json();
-      setPoints(Array.isArray(data) ? data : []);
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.toLowerCase().includes("application/json")) {
+        throw new Error(
+          `Expected JSON but got ${contentType || "unknown"} from ${url}. Response starts with: ${text.slice(0, 80)}`
+        );
+      }
+
+      let data: unknown;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error(`Invalid JSON response from ${url}. Response starts with: ${text.slice(0, 80)}`);
+      }
+
+      setPoints(Array.isArray(data) ? (data as HistoryPoint[]) : []);
     } catch (err: any) {
       setError(err?.message || "Failed to load kWh history");
     } finally {
