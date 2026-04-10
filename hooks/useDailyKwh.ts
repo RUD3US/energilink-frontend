@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_DEVICE } from "../config";
+import { DEFAULT_DEVICE, API_BASE_URL } from "../config";
 
 export type DailyKwhBarPoint = {
   dayKey: string;
@@ -165,7 +165,6 @@ function isValidHistoryPoint(p: HistoryPoint) {
   if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
   if (p.power < 0) return false;
 
-  // Main fix: reject invalid zero-voltage + zero-current rows
   if (p.rms_voltage === 0 && p.rms_current === 0) return false;
 
   return true;
@@ -181,7 +180,9 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       setLoading(true);
       setError(null);
 
-      const url = `/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
+      const base = String(API_BASE_URL || "").replace(/\/+$/, "");
+      const url = `${base}/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
+
       const res = await fetch(url);
 
       if (!res.ok) {
