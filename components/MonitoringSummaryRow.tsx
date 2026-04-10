@@ -51,10 +51,10 @@ export default function MonitoringSummaryRow({
   const { summary, loading, error } = useDailyKwh(kwhDays);
 
   const totalKwhText = error
-    ? "Err"
-    : loading && summary.total === 0
-    ? "..."
-    : `${summary.total.toFixed(2)} kWh`;
+  ? `Err: ${error}`
+  : loading && summary.total === 0
+  ? "..."
+  : `${summary.total.toFixed(2)} kWh`;
 
   return (
     <View
