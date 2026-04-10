@@ -69,9 +69,7 @@ export default function MonitoringSummaryRow({
     >
       <View style={{ gap: 4 }}>
         <Text style={{ fontSize: 16, fontWeight: "700" }}>Monitoring Summary</Text>
-        <Text style={{ color: "#555" }}>
-        
-        </Text>
+        <Text style={{ color: "#555" }}></Text>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false}>
