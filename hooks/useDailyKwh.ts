@@ -1,8 +1,5 @@
-// hooks/useDailyKwh.ts
-
-import { useEffect, useMemo } from "react";
-import { DEFAULT_DEVICE, FIELD_POWER } from "../config";
-import { useRealtime } from "./useRealtime";
+import { useEffect, useMemo, useState } from "react";
+import { DEFAULT_DEVICE } from "../config";
 
 export type DailyKwhBarPoint = {
   dayKey: string;
@@ -25,10 +22,17 @@ export type KwhSummary = {
   peakKwh: number;
 };
 
-const POWER_POINTS_ARE_WATTS = true;
+type HistoryPoint = {
+  time: string;
+  rms_voltage: number | null;
+  rms_current: number | null;
+  power: number | null;
+  power_factor: number | null;
+  note?: string | null;
+};
+
 const MAX_GAP_HOURS = 6;
-const ARCHIVE_POINTS_PER_DAY = 96;
-const API_POINT_LIMIT = 5000;
+const API_HISTORY_LIMIT = 5000;
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -90,21 +94,8 @@ function localMonthKey(ms: number) {
   return `${y}-${m}`;
 }
 
-function sanitizePoints(points: { time: string; value: number }[]) {
-  return points.filter(
-    (p) =>
-      p &&
-      typeof p.time === "string" &&
-      typeof p.value === "number" &&
-      Number.isFinite(p.value)
-  );
-}
-
-function toKwh(powerValue: number, hours: number) {
-  if (POWER_POINTS_ARE_WATTS) {
-    return (powerValue / 1000) * hours;
-  }
-  return powerValue * hours;
+function toKwh(powerWatts: number, hours: number) {
+  return (powerWatts / 1000) * hours;
 }
 
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
@@ -166,18 +157,44 @@ function buildRangeLabel(year: number, monthIndex: number, startDay: number, end
   return `${month} ${start.getDate()}-${end.getDate()}`;
 }
 
+function isValidHistoryPoint(p: HistoryPoint) {
+  if (!p) return false;
+  if (typeof p.time !== "string") return false;
+  if (typeof p.power !== "number" || !Number.isFinite(p.power)) return false;
+  if (typeof p.rms_voltage !== "number" || !Number.isFinite(p.rms_voltage)) return false;
+  if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
+  if (p.power < 0) return false;
+
+  // Main fix: reject invalid zero-voltage + zero-current rows
+  if (p.rms_voltage === 0 && p.rms_current === 0) return false;
+
+  return true;
+}
+
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
-  const powerRT = useRealtime(device, FIELD_POWER);
+  const [points, setPoints] = useState<HistoryPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => {
-    const now = new Date();
-    const { daysInMonth } = getBatchRange(now);
-    const estimatedPoints = Math.min(
-      Math.max(daysInMonth * ARCHIVE_POINTS_PER_DAY + 128, 500),
-      API_POINT_LIMIT
-    );
+  const refresh = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    powerRT.refresh(String(estimatedPoints));
+      const url = `/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
+      const res = await fetch(url);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      setPoints(Array.isArray(data) ? data : []);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load kWh history");
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -185,14 +202,15 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   }, [days, months, device]);
 
   const sorted = useMemo(() => {
-    return sanitizePoints(powerRT.points)
+    return points
+      .filter(isValidHistoryPoint)
       .map((p) => ({
         timeMs: toMs(p.time),
-        power: p.value,
+        power: p.power as number,
       }))
       .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.power))
       .sort((a, b) => a.timeMs - b.timeMs);
-  }, [powerRT.points]);
+  }, [points]);
 
   const batchInfo = useMemo(() => {
     const range = getBatchRange(new Date());
@@ -240,7 +258,6 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
         if (gapHours > MAX_GAP_HOURS) continue;
-        if (current.power < 0) continue;
 
         let cursor = segStart;
 
@@ -302,7 +319,6 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
         if (gapHours > MAX_GAP_HOURS) continue;
-        if (current.power < 0) continue;
 
         let cursor = segStart;
 
@@ -357,7 +373,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     daysInMonth: batchInfo.daysInMonth,
 
     refresh,
-    loading: powerRT.loading,
-    error: powerRT.error,
+    loading,
+    error,
   };
 }
