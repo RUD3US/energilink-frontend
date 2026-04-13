@@ -18,6 +18,8 @@ type HistoryRow = {
   note?: string | null;
 };
 
+const HISTORY_FETCH_LIMIT = 5000;
+
 function formatValue(
   value: number | null | undefined,
   decimals: number,
@@ -60,11 +62,37 @@ function escapeCsvValue(value: string | number | null | undefined) {
   return stringValue;
 }
 
+function monthKeyFromTime(value: string) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function monthLabelFromKey(key: string) {
+  const [year, month] = key.split("-").map(Number);
+  if (!year || !month) return key;
+  const d = new Date(year, month - 1, 1);
+  return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+
+function shiftMonthKey(key: string, offset: number) {
+  const [year, month] = key.split("-").map(Number);
+  if (!year || !month) return key;
+  const d = new Date(year, month - 1, 1);
+  d.setMonth(d.getMonth() + offset);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
 export default function TableScreen() {
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
 
   const fetchHistory = useCallback(async (isRefresh = false) => {
     try {
@@ -77,35 +105,63 @@ export default function TableScreen() {
 
       const qs = new URLSearchParams({
         device: DEFAULT_DEVICE,
-        limit: "200",
+        limit: String(HISTORY_FETCH_LIMIT),
       }).toString();
 
       const res = await fetch(`${API_BASE}/public/history?${qs}`);
+      const text = await res.text();
+
       if (!res.ok) {
-        let detail = `Request failed (${res.status})`;
-        try {
-          const data = await res.json();
-          detail = String(data?.detail ?? data?.message ?? detail);
-        } catch {}
-        throw new Error(detail);
+        throw new Error(`Request failed (${res.status}): ${text.slice(0, 160)}`);
       }
 
-      const data = (await res.json()) as HistoryRow[];
-      setRows(Array.isArray(data) ? data : []);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(`History endpoint did not return JSON. Response starts with: ${text.slice(0, 120)}`);
+      }
+
+      const nextRows = Array.isArray(parsed) ? (parsed as HistoryRow[]) : [];
+      setRows(nextRows);
+
+      if (!selectedMonth && nextRows.length > 0) {
+        const firstMonth = monthKeyFromTime(nextRows[0].time);
+        if (firstMonth) setSelectedMonth(firstMonth);
+      }
     } catch (e: any) {
       setError(String(e?.message ?? e));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [selectedMonth]);
 
   useEffect(() => {
     fetchHistory(false);
   }, [fetchHistory]);
 
+  const availableMonths = useMemo(() => {
+    const keys = Array.from(
+      new Set(rows.map((row) => monthKeyFromTime(row.time)).filter(Boolean))
+    );
+    keys.sort((a, b) => (a < b ? 1 : -1));
+    return keys;
+  }, [rows]);
+
+  useEffect(() => {
+    if (!selectedMonth && availableMonths.length > 0) {
+      setSelectedMonth(availableMonths[0]);
+    }
+  }, [availableMonths, selectedMonth]);
+
+  const filteredRows = useMemo(() => {
+    if (!selectedMonth) return rows;
+    return rows.filter((row) => monthKeyFromTime(row.time) === selectedMonth);
+  }, [rows, selectedMonth]);
+
   const exportToCSV = useCallback(() => {
-    if (!rows.length) return;
+    if (!filteredRows.length) return;
 
     if (typeof document === "undefined") {
       setError("CSV export is only available on web.");
@@ -121,7 +177,7 @@ export default function TableScreen() {
       "Note",
     ];
 
-    const csvRows = rows.map((row) => [
+    const csvRows = filteredRows.map((row) => [
       formatTime(row.time),
       row.rms_voltage ?? "",
       row.rms_current ?? "",
@@ -140,7 +196,7 @@ export default function TableScreen() {
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const stamp = selectedMonth || new Date().toISOString().slice(0, 7);
 
     link.href = url;
     link.download = `history-${stamp}.csv`;
@@ -148,12 +204,36 @@ export default function TableScreen() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [rows]);
+  }, [filteredRows, selectedMonth]);
 
-  const latestVoltage = useMemo(() => latestNonNull(rows, "rms_voltage"), [rows]);
-  const latestCurrent = useMemo(() => latestNonNull(rows, "rms_current"), [rows]);
-  const latestPower = useMemo(() => latestNonNull(rows, "power"), [rows]);
-  const latestPf = useMemo(() => latestNonNull(rows, "power_factor"), [rows]);
+  const latestVoltage = useMemo(
+    () => latestNonNull(filteredRows, "rms_voltage"),
+    [filteredRows]
+  );
+  const latestCurrent = useMemo(
+    () => latestNonNull(filteredRows, "rms_current"),
+    [filteredRows]
+  );
+  const latestPower = useMemo(
+    () => latestNonNull(filteredRows, "power"),
+    [filteredRows]
+  );
+  const latestPf = useMemo(
+    () => latestNonNull(filteredRows, "power_factor"),
+    [filteredRows]
+  );
+
+  const selectedMonthLabel = selectedMonth
+    ? monthLabelFromKey(selectedMonth)
+    : "Current Month";
+
+  const canGoPrev = selectedMonth
+    ? availableMonths.includes(shiftMonthKey(selectedMonth, -1))
+    : false;
+
+  const canGoNext = selectedMonth
+    ? availableMonths.includes(shiftMonthKey(selectedMonth, 1))
+    : false;
 
   return (
     <ScrollView
@@ -174,11 +254,79 @@ export default function TableScreen() {
       >
         <Text style={{ fontSize: 20, fontWeight: "700" }}>History Table</Text>
         <Text style={{ color: "#555" }}>
-          This table uses the backend history endpoint directly, so voltage,
-          current, power, and PF come from the same archived row source.
+          This version loads a much larger history window, filters by month, and exports
+          the selected month only.
         </Text>
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <Pressable
+            disabled={!canGoPrev}
+            onPress={() => setSelectedMonth((prev) => shiftMonthKey(prev, -1))}
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoPrev ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Prev Month</Text>
+          </Pressable>
+
+          <View
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#f8fafc",
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>{selectedMonthLabel}</Text>
+          </View>
+
+          <Pressable
+            disabled={!canGoNext}
+            onPress={() => setSelectedMonth((prev) => shiftMonthKey(prev, 1))}
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoNext ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Next Month</Text>
+          </Pressable>
+        </View>
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          <View
+            style={{
+              minWidth: 160,
+              padding: 12,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              borderRadius: 12,
+              backgroundColor: "#f8fafc",
+            }}
+          >
+            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+              Rows in selected month
+            </Text>
+            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+              {filteredRows.length}
+            </Text>
+          </View>
+
           <View
             style={{
               minWidth: 140,
@@ -280,10 +428,12 @@ export default function TableScreen() {
               borderWidth: 1,
               borderColor: "#bfdbfe",
               backgroundColor: "#eff6ff",
-              opacity: rows.length ? 1 : 0.6,
+              opacity: filteredRows.length ? 1 : 0.6,
             }}
           >
-            <Text style={{ fontWeight: "700", color: "#1d4ed8" }}>Export CSV</Text>
+            <Text style={{ fontWeight: "700", color: "#1d4ed8" }}>
+              Export {selectedMonthLabel} CSV
+            </Text>
           </Pressable>
         </View>
 
@@ -324,19 +474,19 @@ export default function TableScreen() {
                 <ActivityIndicator />
                 <Text style={{ marginTop: 8, color: "#555" }}>Loading history...</Text>
               </View>
-            ) : rows.length === 0 ? (
+            ) : filteredRows.length === 0 ? (
               <View style={{ padding: 20 }}>
-                <Text style={{ color: "#555" }}>No history rows yet.</Text>
+                <Text style={{ color: "#555" }}>No rows found for {selectedMonthLabel}.</Text>
               </View>
             ) : (
-              rows.map((row, idx) => (
+              filteredRows.map((row, idx) => (
                 <View
                   key={`${row.time}-${idx}`}
                   style={{
                     flexDirection: "row",
                     paddingVertical: 12,
                     paddingHorizontal: 12,
-                    borderBottomWidth: idx === rows.length - 1 ? 0 : 1,
+                    borderBottomWidth: idx === filteredRows.length - 1 ? 0 : 1,
                     borderBottomColor: "#f3f4f6",
                     backgroundColor: idx % 2 === 0 ? "#fff" : "#fcfcfd",
                   }}
@@ -365,8 +515,7 @@ export default function TableScreen() {
       </View>
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        This table uses archived grouped history rows, so it avoids the frontend
-        nearest-match issue that was making voltage, current, and PF go empty.
+        This table now exports the currently selected month only.
       </Text>
     </ScrollView>
   );
