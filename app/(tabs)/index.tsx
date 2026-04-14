@@ -12,7 +12,7 @@ import {
 import {
   API_BASE,
   DEFAULT_DEVICE,
-  FIELD_CURRENT,
+  FIELD_CURRENT,f
   FIELD_POWER,
   FIELD_POWER_FACTOR,
   FIELD_REALTIME_POWER,
@@ -453,7 +453,7 @@ export default function TabOneScreen() {
         <Text style={{ fontSize: 22, fontWeight: "700" }}>
           EnergiLink Live Monitoring
         </Text>
-        <Text style={{ color: "#555" }}>API_BASE: {API_BASE}</Text>
+        
       </View>
 
       {voltageRT.error ? <Text style={{ color: "red" }}>voltage error: {voltageRT.error}</Text> : null}
