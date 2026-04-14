@@ -8,10 +8,13 @@ export type DailyKwhBarPoint = {
   kwh: number;
 };
 
-export type WeeklyKwhBarPoint = {
-  weekKey: string;
+export type Compare14DayPoint = {
+  slotKey: string;
   label: string;
-  kwh: number;
+  currentKwh: number;
+  previousKwh: number;
+  currentFullLabel: string;
+  previousFullLabel: string;
 };
 
 export type MonthlyKwhBarPoint = {
@@ -27,6 +30,17 @@ export type KwhSummary = {
   total: number;
   peakLabel: string;
   peakKwh: number;
+};
+
+export type Compare14Summary = {
+  currentTotal: number;
+  previousTotal: number;
+  deltaKwh: number;
+  deltaPercent: number | null;
+  currentPeakLabel: string;
+  currentPeakKwh: number;
+  previousPeakLabel: string;
+  previousPeakKwh: number;
 };
 
 const POWER_POINTS_ARE_WATTS = true;
@@ -69,6 +83,14 @@ function dayLabel(ms: number) {
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
+  });
+}
+
+function fullDayLabel(ms: number) {
+  return new Date(ms).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 }
 
@@ -170,28 +192,87 @@ function buildRangeLabel(year: number, monthIndex: number, startDay: number, end
   return `${month} ${start.getDate()}-${end.getDate()}`;
 }
 
-function startOfWeekMs(ms: number) {
-  const d = new Date(ms);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-}
+function buildDailyWindowData(
+  sorted: Array<{ timeMs: number; power: number }>,
+  startMs: number,
+  endMs: number
+): DailyKwhBarPoint[] {
+  const buckets = new Map<string, number>();
 
-function weekLabelFromStart(ms: number) {
-  const start = new Date(ms);
-  const end = new Date(ms);
-  end.setDate(end.getDate() + 6);
-
-  const startMonth = start.toLocaleDateString(undefined, { month: "short" });
-  const endMonth = end.toLocaleDateString(undefined, { month: "short" });
-
-  if (startMonth === endMonth) {
-    return `${startMonth} ${start.getDate()}-${end.getDate()}`;
+  for (
+    let cursor = startOfDayMs(startMs);
+    cursor <= endMs;
+    cursor = startOfDayMs(cursor + 24 * 60 * 60 * 1000)
+  ) {
+    buckets.set(localDayKey(cursor), 0);
   }
 
-  return `${startMonth} ${start.getDate()}-${endMonth} ${end.getDate()}`;
+  if (sorted.length >= 2) {
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+
+      if (next.timeMs <= startMs) continue;
+
+      const segStart = Math.max(current.timeMs, startMs);
+      const segEnd = Math.min(next.timeMs, endMs + 1);
+
+      if (segEnd <= segStart) continue;
+
+      const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
+      if (gapHours > MAX_GAP_HOURS) continue;
+      if (current.power < 0) continue;
+
+      let cursor = segStart;
+
+      while (cursor < segEnd) {
+        const sliceEnd = Math.min(endOfDayMs(cursor) + 1, segEnd);
+        const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
+        const dayStart = startOfDayMs(cursor);
+        const key = localDayKey(dayStart);
+
+        if (buckets.has(key)) {
+          buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
+        }
+
+        cursor = sliceEnd;
+      }
+    }
+  }
+
+  return Array.from(buckets.keys()).map((key) => {
+    const dayMs = new Date(`${key}T00:00:00`).getTime();
+    return {
+      dayKey: key,
+      label: dayLabel(dayMs),
+      kwh: Number((buckets.get(key) || 0).toFixed(2)),
+    };
+  });
+}
+
+function buildCompare14Summary(
+  currentData: DailyKwhBarPoint[],
+  previousData: DailyKwhBarPoint[]
+): Compare14Summary {
+  const currentSummary = buildSummary(currentData);
+  const previousSummary = buildSummary(previousData);
+
+  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(2));
+  const deltaPercent =
+    previousSummary.total > 0
+      ? Number((((currentSummary.total - previousSummary.total) / previousSummary.total) * 100).toFixed(2))
+      : null;
+
+  return {
+    currentTotal: currentSummary.total,
+    previousTotal: previousSummary.total,
+    deltaKwh,
+    deltaPercent,
+    currentPeakLabel: currentSummary.peakLabel,
+    currentPeakKwh: currentSummary.peakKwh,
+    previousPeakLabel: previousSummary.peakLabel,
+    previousPeakKwh: previousSummary.peakKwh,
+  };
 }
 
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
@@ -243,83 +324,72 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
   const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
     const { year, monthIndex, todayDay, batchStartDay } = batchInfo;
-
     const fromMs = new Date(year, monthIndex, batchStartDay, 0, 0, 0, 0).getTime();
     const toMsLimit = new Date(year, monthIndex, todayDay, 23, 59, 59, 999).getTime();
+    return buildDailyWindowData(sorted, fromMs, toMsLimit);
+  }, [sorted, batchInfo]);
 
-    const buckets = new Map<string, number>();
+  const compare14Data = useMemo<Compare14DayPoint[]>(() => {
+    const { year, monthIndex, todayDay, batchStartDay } = batchInfo;
 
-    for (let day = batchStartDay; day <= todayDay; day++) {
-      const dayMs = new Date(year, monthIndex, day, 0, 0, 0, 0).getTime();
-      buckets.set(localDayKey(dayMs), 0);
-    }
+    const currentStartMs = new Date(year, monthIndex, batchStartDay, 0, 0, 0, 0).getTime();
+    const currentEndMs = new Date(year, monthIndex, todayDay, 23, 59, 59, 999).getTime();
 
-    if (sorted.length >= 2) {
-      for (let i = 0; i < sorted.length - 1; i++) {
-        const current = sorted[i];
-        const next = sorted[i + 1];
+    const currentWindow = buildDailyWindowData(sorted, currentStartMs, currentEndMs);
 
-        if (next.timeMs <= fromMs) continue;
+    const currentLength = currentWindow.length;
+    const previousEndDate = new Date(currentStartMs - 1);
+    const previousEndMs = new Date(
+      previousEndDate.getFullYear(),
+      previousEndDate.getMonth(),
+      previousEndDate.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
 
-        const segStart = Math.max(current.timeMs, fromMs);
-        const segEnd = Math.min(next.timeMs, toMsLimit + 1);
+    const previousStartDate = new Date(previousEndMs);
+    previousStartDate.setDate(previousStartDate.getDate() - (currentLength - 1));
+    previousStartDate.setHours(0, 0, 0, 0);
+    const previousStartMs = previousStartDate.getTime();
 
-        if (segEnd <= segStart) continue;
+    const previousWindow = buildDailyWindowData(sorted, previousStartMs, previousEndMs);
 
-        const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
-        if (gapHours > MAX_GAP_HOURS) continue;
-        if (current.power < 0) continue;
+    const maxLen = Math.max(currentWindow.length, previousWindow.length);
 
-        let cursor = segStart;
+    return Array.from({ length: maxLen }).map((_, index) => {
+      const currentItem = currentWindow[index];
+      const previousItem = previousWindow[index];
 
-        while (cursor < segEnd) {
-          const sliceEnd = Math.min(endOfDayMs(cursor) + 1, segEnd);
-          const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
-          const dayStart = startOfDayMs(cursor);
-          const key = localDayKey(dayStart);
-
-          if (buckets.has(key)) {
-            buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
-          }
-
-          cursor = sliceEnd;
-        }
-      }
-    }
-
-    return Array.from(buckets.keys()).map((key) => {
-      const dayMs = new Date(`${key}T00:00:00`).getTime();
       return {
-        dayKey: key,
-        label: dayLabel(dayMs),
-        kwh: Number((buckets.get(key) || 0).toFixed(2)),
+        slotKey: `slot-${index}`,
+        label: currentItem?.label ?? previousItem?.label ?? `Day ${index + 1}`,
+        currentKwh: Number((currentItem?.kwh ?? 0).toFixed(2)),
+        previousKwh: Number((previousItem?.kwh ?? 0).toFixed(2)),
+        currentFullLabel: currentItem
+          ? fullDayLabel(new Date(`${currentItem.dayKey}T00:00:00`).getTime())
+          : "—",
+        previousFullLabel: previousItem
+          ? fullDayLabel(new Date(`${previousItem.dayKey}T00:00:00`).getTime())
+          : "—",
       };
     });
   }, [sorted, batchInfo]);
 
-  const weeklyData = useMemo<WeeklyKwhBarPoint[]>(() => {
-    const buckets = new Map<string, { label: string; kwh: number }>();
-
-    for (const item of dailyData) {
-      const dayMs = new Date(`${item.dayKey}T00:00:00`).getTime();
-      const weekStartMs = startOfWeekMs(dayMs);
-      const weekKey = new Date(weekStartMs).toISOString().slice(0, 10);
-      const label = weekLabelFromStart(weekStartMs);
-
-      if (!buckets.has(weekKey)) {
-        buckets.set(weekKey, { label, kwh: 0 });
-      }
-
-      const entry = buckets.get(weekKey)!;
-      entry.kwh += item.kwh;
-    }
-
-    return Array.from(buckets.entries()).map(([weekKey, value]) => ({
-      weekKey,
-      label: value.label,
-      kwh: Number(value.kwh.toFixed(2)),
+  const compare14Summary = useMemo(() => {
+    const currentData = compare14Data.map((item) => ({
+      label: item.currentFullLabel,
+      kwh: item.currentKwh,
     }));
-  }, [dailyData]);
+
+    const previousData = compare14Data.map((item) => ({
+      label: item.previousFullLabel,
+      kwh: item.previousKwh,
+    }));
+
+    return buildCompare14Summary(currentData, previousData);
+  }, [compare14Data]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
     const now = Date.now();
@@ -384,7 +454,6 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   }, [sorted, months]);
 
   const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
-  const weeklySummary = useMemo(() => buildSummary(weeklyData), [weeklyData]);
   const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
 
   return {
@@ -399,10 +468,10 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     },
 
     dailyData,
-    weeklyData,
+    compare14Data,
+    compare14Summary,
     monthlyData,
     dailySummary,
-    weeklySummary,
     monthlySummary,
     batchLabel: batchInfo.batchLabel,
     visibleLabel: batchInfo.visibleLabel,
