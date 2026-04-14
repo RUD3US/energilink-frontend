@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useDailyKwh, type KwhSummary } from "../hooks/useDailyKwh";
 import { useGempReport } from "../hooks/useGempReport";
 
-type KwhTab = "daily" | "monthly";
+type KwhTab = "daily" | "weekly" | "monthly";
 
 type ChartBar = {
   key: string;
@@ -124,6 +124,7 @@ export default function DailyKwhBarCard({
   const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
+  const weeklyData = Array.isArray(result.weeklyData) ? result.weeklyData : [];
 
   const dailySummary = result.dailySummary ?? {
     current: result.summary?.today ?? 0,
@@ -132,6 +133,15 @@ export default function DailyKwhBarCard({
     total: result.summary?.total ?? 0,
     peakLabel: result.summary?.peakLabel ?? "—",
     peakKwh: result.summary?.peakKwh ?? 0,
+  };
+
+  const weeklySummary = result.weeklySummary ?? {
+    current: 0,
+    previous: 0,
+    avg: 0,
+    total: 0,
+    peakLabel: "—",
+    peakKwh: 0,
   };
 
   const currentMonthLabel = String(gemp.dynamic?.current_month_label ?? "").trim();
@@ -191,6 +201,16 @@ export default function DailyKwhBarCard({
       return monthlyBars;
     }
 
+    if (activeTab === "weekly") {
+      return weeklyData.map((item) => ({
+        key: item.weekKey,
+        label: item.label,
+        fullLabel: item.label,
+        kwh: item.kwh,
+        isCurrent: false,
+      }));
+    }
+
     return dailyData.map((item) => ({
       key: item.dayKey,
       label: item.label,
@@ -198,24 +218,66 @@ export default function DailyKwhBarCard({
       kwh: item.kwh,
       isCurrent: false,
     }));
-  }, [activeTab, monthlyBars, dailyData]);
+  }, [activeTab, monthlyBars, weeklyData, dailyData]);
 
-  const activeSummary = activeTab === "monthly" ? monthlySummary : dailySummary;
+  const activeSummary =
+    activeTab === "monthly"
+      ? monthlySummary
+      : activeTab === "weekly"
+      ? weeklySummary
+      : dailySummary;
+
   const max = Math.max(...activeBars.map((d) => d.kwh), 1);
   const chartHeight = 220;
 
-  const title = activeTab === "daily" ? "Daily kWh Bar Graph" : "Monthly kWh Bar Graph";
+  const title =
+    activeTab === "daily"
+      ? "Daily kWh Bar Graph"
+      : activeTab === "weekly"
+      ? "Weekly kWh Bar Graph"
+      : "Monthly kWh Bar Graph";
 
   const subtitle =
     activeTab === "daily"
       ? `Current month batch: ${result.batchLabel}. Showing ${result.visibleLabel} so far.`
+      : activeTab === "weekly"
+      ? "Weekly totals are grouped from the visible 14-day daily bars."
       : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
 
-  const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
-  const previousLabel = activeTab === "daily" ? "Previous day kWh" : "Previous month kWh";
-  const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
-  const totalLabel = activeTab === "daily" ? "Visible batch kWh" : "Total period kWh";
-  const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
+  const currentLabel =
+    activeTab === "daily"
+      ? "Latest day kWh"
+      : activeTab === "weekly"
+      ? "Latest week kWh"
+      : "Current month kWh";
+
+  const previousLabel =
+    activeTab === "daily"
+      ? "Previous day kWh"
+      : activeTab === "weekly"
+      ? "Previous week kWh"
+      : "Previous month kWh";
+
+  const avgLabel =
+    activeTab === "daily"
+      ? "Average / day"
+      : activeTab === "weekly"
+      ? "Average / week"
+      : "Average / month";
+
+  const totalLabel =
+    activeTab === "daily"
+      ? "Visible batch kWh"
+      : activeTab === "weekly"
+      ? "Visible weekly kWh"
+      : "Total period kWh";
+
+  const peakLabelTitle =
+    activeTab === "daily"
+      ? "Peak day"
+      : activeTab === "weekly"
+      ? "Peak week"
+      : "Peak month";
 
   const combinedLoading = result.loading || gemp.loading;
   const combinedError = result.error || gemp.error;
@@ -282,6 +344,11 @@ export default function DailyKwhBarCard({
           onPress={() => setActiveTab("daily")}
         />
         <TabButton
+          label="Weekly"
+          active={activeTab === "weekly"}
+          onPress={() => setActiveTab("weekly")}
+        />
+        <TabButton
           label="Monthly"
           active={activeTab === "monthly"}
           onPress={() => setActiveTab("monthly")}
@@ -305,6 +372,8 @@ export default function DailyKwhBarCard({
         <Text style={{ color: "#666" }}>
           {activeTab === "daily"
             ? "No daily kWh data available yet."
+            : activeTab === "weekly"
+            ? "No weekly kWh data available yet."
             : "No monthly kWh data available yet."}
         </Text>
       ) : (
@@ -378,8 +447,10 @@ export default function DailyKwhBarCard({
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         {activeTab === "daily"
-          ? `Daily tab shows only the current month batch (${result.batchLabel}). Monthly totals still include the full current month.`
-          : "Highest bar in this monthly window."}
+          ? `Daily tab shows only the current month batch (${result.batchLabel}).`
+          : activeTab === "weekly"
+          ? "Weekly tab compares grouped totals from the visible 14-day daily batch."
+          : "Monthly tab compares month totals."}
       </Text>
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         Highest bar in this window: {max.toFixed(2)} kWh
