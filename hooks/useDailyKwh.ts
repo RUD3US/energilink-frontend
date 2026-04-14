@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { DEFAULT_DEVICE } from "../config";
+import { useEffect, useMemo } from "react";
+import { DEFAULT_DEVICE, FIELD_POWER } from "../config";
+import { useRealtime } from "./useRealtime";
 
 export type DailyKwhBarPoint = {
   dayKey: string;
+  label: string;
+  kwh: number;
+};
+
+export type WeeklyKwhBarPoint = {
+  weekKey: string;
   label: string;
   kwh: number;
 };
@@ -22,25 +29,10 @@ export type KwhSummary = {
   peakKwh: number;
 };
 
-type HistoryPoint = {
-  time: string;
-  rms_voltage: number | null;
-  rms_current: number | null;
-  power: number | null;
-  power_factor: number | null;
-  note?: string | null;
-};
-
-const API_HISTORY_LIMIT = 2000;
+const POWER_POINTS_ARE_WATTS = true;
 const MAX_GAP_HOURS = 6;
-
-const API_BASE_URL =
-  (
-    (typeof process !== "undefined" &&
-      typeof process.env !== "undefined" &&
-      process.env.EXPO_PUBLIC_API_BASE_URL) ||
-    "https://energilink-backend.onrender.com"
-  ).replace(/\/+$/, "");
+const ARCHIVE_POINTS_PER_DAY = 96;
+const API_POINT_LIMIT = 5000;
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -102,8 +94,21 @@ function localMonthKey(ms: number) {
   return `${y}-${m}`;
 }
 
-function toKwh(powerWatts: number, hours: number) {
-  return (powerWatts / 1000) * hours;
+function sanitizePoints(points: { time: string; value: number }[]) {
+  return points.filter(
+    (p) =>
+      p &&
+      typeof p.time === "string" &&
+      typeof p.value === "number" &&
+      Number.isFinite(p.value)
+  );
+}
+
+function toKwh(powerValue: number, hours: number) {
+  if (POWER_POINTS_ARE_WATTS) {
+    return (powerValue / 1000) * hours;
+  }
+  return powerValue * hours;
 }
 
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
@@ -165,58 +170,42 @@ function buildRangeLabel(year: number, monthIndex: number, startDay: number, end
   return `${month} ${start.getDate()}-${end.getDate()}`;
 }
 
-function isValidHistoryPoint(p: HistoryPoint) {
-  if (!p) return false;
-  if (typeof p.time !== "string") return false;
-  if (typeof p.power !== "number" || !Number.isFinite(p.power)) return false;
-  if (typeof p.rms_voltage !== "number" || !Number.isFinite(p.rms_voltage)) return false;
-  if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
-  if (p.power < 0) return false;
+function startOfWeekMs(ms: number) {
+  const d = new Date(ms);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
 
-  // Main fix: ignore invalid rows where both voltage and current are zero
-  if (p.rms_voltage === 0 && p.rms_current === 0) return false;
+function weekLabelFromStart(ms: number) {
+  const start = new Date(ms);
+  const end = new Date(ms);
+  end.setDate(end.getDate() + 6);
 
-  return true;
+  const startMonth = start.toLocaleDateString(undefined, { month: "short" });
+  const endMonth = end.toLocaleDateString(undefined, { month: "short" });
+
+  if (startMonth === endMonth) {
+    return `${startMonth} ${start.getDate()}-${end.getDate()}`;
+  }
+
+  return `${startMonth} ${start.getDate()}-${endMonth} ${end.getDate()}`;
 }
 
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
-  const [points, setPoints] = useState<HistoryPoint[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const powerRT = useRealtime(device, FIELD_POWER);
 
-  const refresh = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const refresh = () => {
+    const now = new Date();
+    const { daysInMonth } = getBatchRange(now);
+    const estimatedPoints = Math.min(
+      Math.max(daysInMonth * ARCHIVE_POINTS_PER_DAY + 128, 500),
+      API_POINT_LIMIT
+    );
 
-      const url = `${API_BASE_URL}/public/history?device=${encodeURIComponent(device)}&limit=${API_HISTORY_LIMIT}`;
-      const res = await fetch(url);
-      const text = await res.text();
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.toLowerCase().includes("application/json")) {
-        throw new Error(
-          `Expected JSON but got ${contentType || "unknown"} from ${url}. Response starts with: ${text.slice(0, 80)}`
-        );
-      }
-
-      let data: unknown;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        throw new Error(`Invalid JSON response from ${url}. Response starts with: ${text.slice(0, 80)}`);
-      }
-
-      setPoints(Array.isArray(data) ? (data as HistoryPoint[]) : []);
-    } catch (err: any) {
-      setError(err?.message || "Failed to load kWh history");
-    } finally {
-      setLoading(false);
-    }
+    powerRT.refresh(String(estimatedPoints));
   };
 
   useEffect(() => {
@@ -224,15 +213,14 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   }, [days, months, device]);
 
   const sorted = useMemo(() => {
-    return points
-      .filter(isValidHistoryPoint)
+    return sanitizePoints(powerRT.points)
       .map((p) => ({
         timeMs: toMs(p.time),
-        power: p.power as number,
+        power: p.value,
       }))
       .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.power))
       .sort((a, b) => a.timeMs - b.timeMs);
-  }, [points]);
+  }, [powerRT.points]);
 
   const batchInfo = useMemo(() => {
     const range = getBatchRange(new Date());
@@ -280,6 +268,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
         if (gapHours > MAX_GAP_HOURS) continue;
+        if (current.power < 0) continue;
 
         let cursor = segStart;
 
@@ -307,6 +296,30 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       };
     });
   }, [sorted, batchInfo]);
+
+  const weeklyData = useMemo<WeeklyKwhBarPoint[]>(() => {
+    const buckets = new Map<string, { label: string; kwh: number }>();
+
+    for (const item of dailyData) {
+      const dayMs = new Date(`${item.dayKey}T00:00:00`).getTime();
+      const weekStartMs = startOfWeekMs(dayMs);
+      const weekKey = new Date(weekStartMs).toISOString().slice(0, 10);
+      const label = weekLabelFromStart(weekStartMs);
+
+      if (!buckets.has(weekKey)) {
+        buckets.set(weekKey, { label, kwh: 0 });
+      }
+
+      const entry = buckets.get(weekKey)!;
+      entry.kwh += item.kwh;
+    }
+
+    return Array.from(buckets.entries()).map(([weekKey, value]) => ({
+      weekKey,
+      label: value.label,
+      kwh: Number(value.kwh.toFixed(2)),
+    }));
+  }, [dailyData]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
     const now = Date.now();
@@ -341,6 +354,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
         const gapHours = (segEnd - segStart) / 1000 / 60 / 60;
         if (gapHours > MAX_GAP_HOURS) continue;
+        if (current.power < 0) continue;
 
         let cursor = segStart;
 
@@ -370,6 +384,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   }, [sorted, months]);
 
   const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
+  const weeklySummary = useMemo(() => buildSummary(weeklyData), [weeklyData]);
   const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
 
   return {
@@ -384,8 +399,10 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     },
 
     dailyData,
+    weeklyData,
     monthlyData,
     dailySummary,
+    weeklySummary,
     monthlySummary,
     batchLabel: batchInfo.batchLabel,
     visibleLabel: batchInfo.visibleLabel,
@@ -395,7 +412,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     daysInMonth: batchInfo.daysInMonth,
 
     refresh,
-    loading,
-    error,
+    loading: powerRT.loading,
+    error: powerRT.error,
   };
 }
