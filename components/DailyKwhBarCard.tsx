@@ -124,7 +124,9 @@ export default function DailyKwhBarCard({
   const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
-  const compare14Data = Array.isArray(result.compare14Data) ? result.compare14Data : [];
+  const compare14WeeklyData = Array.isArray(result.compare14WeeklyData)
+    ? result.compare14WeeklyData
+    : [];
 
   const dailySummary = result.dailySummary ?? {
     current: result.summary?.today ?? 0,
@@ -217,10 +219,12 @@ export default function DailyKwhBarCard({
   }, [activeTab, monthlyBars, dailyData]);
 
   const activeSummary = activeTab === "monthly" ? monthlySummary : dailySummary;
+
   const compareMax = Math.max(
-    ...compare14Data.flatMap((item) => [item.currentKwh, item.previousKwh]),
+    ...compare14WeeklyData.flatMap((item) => [item.currentKwh, item.previousKwh]),
     1
   );
+
   const max = Math.max(...activeBars.map((d) => d.kwh), 1);
   const chartHeight = 220;
 
@@ -233,15 +237,15 @@ export default function DailyKwhBarCard({
 
   const subtitle =
     activeTab === "daily"
-      ? `Current month batch: ${result.batchLabel}. Showing ${result.visibleLabel} so far.`
+      ? `${result.batchLabel}. ${result.visibleLabel}`
       : activeTab === "compare14"
-      ? "Blue bars are the current visible 14-day window. Gray bars are the immediately previous 14-day window."
+      ? "Blue = current 14d. Gray = previous 14d. Each bar represents 7 days."
       : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
 
   const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
   const previousLabel = activeTab === "daily" ? "Previous day kWh" : "Previous month kWh";
   const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
-  const totalLabel = activeTab === "daily" ? "Visible batch kWh" : "Total period kWh";
+  const totalLabel = activeTab === "daily" ? "Visible 14d kWh" : "Total period kWh";
   const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
 
   const combinedLoading = result.loading || gemp.loading;
@@ -258,7 +262,7 @@ export default function DailyKwhBarCard({
     });
 
     return () => cancelAnimationFrame(id);
-  }, [activeTab, activeBars.length, compare14Data.length]);
+  }, [activeTab, activeBars.length, compare14WeeklyData.length]);
 
   return (
     <View
@@ -358,7 +362,7 @@ export default function DailyKwhBarCard({
       )}
 
       {activeTab === "compare14" ? (
-        !compare14Data.length ? (
+        !compare14WeeklyData.length ? (
           <Text style={{ color: "#666" }}>No comparison data available yet.</Text>
         ) : (
           <ScrollView
@@ -373,31 +377,38 @@ export default function DailyKwhBarCard({
               style={{
                 flexDirection: "row",
                 alignItems: "flex-end",
-                gap: 18,
+                gap: 28,
                 minHeight: chartHeight + 90,
                 paddingTop: 16,
                 paddingBottom: 8,
+                paddingHorizontal: 8,
               }}
             >
-              {compare14Data.map((item) => {
-                const currentHeight = Math.max((item.currentKwh / compareMax) * chartHeight, item.currentKwh > 0 ? 10 : 0);
-                const previousHeight = Math.max((item.previousKwh / compareMax) * chartHeight, item.previousKwh > 0 ? 10 : 0);
+              {compare14WeeklyData.map((item) => {
+                const currentHeight = Math.max(
+                  (item.currentKwh / compareMax) * chartHeight,
+                  item.currentKwh > 0 ? 14 : 0
+                );
+                const previousHeight = Math.max(
+                  (item.previousKwh / compareMax) * chartHeight,
+                  item.previousKwh > 0 ? 14 : 0
+                );
 
                 return (
                   <View
-                    key={item.slotKey}
+                    key={item.weekKey}
                     style={{
-                      width: 74,
+                      width: 140,
                       alignItems: "center",
                       justifyContent: "flex-end",
-                      gap: 8,
+                      gap: 10,
                     }}
                   >
-                    <View style={{ alignItems: "center", gap: 2 }}>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: "#2563eb" }}>
+                    <View style={{ alignItems: "center", gap: 4 }}>
+                      <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
                         {item.currentKwh.toFixed(2)}
                       </Text>
-                      <Text style={{ fontSize: 11, fontWeight: "700", color: "#6b7280" }}>
+                      <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
                         {item.previousKwh.toFixed(2)}
                       </Text>
                     </View>
@@ -407,23 +418,23 @@ export default function DailyKwhBarCard({
                         flexDirection: "row",
                         alignItems: "flex-end",
                         justifyContent: "center",
-                        gap: 6,
+                        gap: 12,
                         height: chartHeight,
                       }}
                     >
                       <View
                         style={{
-                          width: 18,
+                          width: 34,
                           height: currentHeight,
-                          borderRadius: 6,
+                          borderRadius: 8,
                           backgroundColor: "#2563eb",
                         }}
                       />
                       <View
                         style={{
-                          width: 18,
+                          width: 34,
                           height: previousHeight,
-                          borderRadius: 6,
+                          borderRadius: 8,
                           backgroundColor: "#9ca3af",
                         }}
                       />
@@ -431,9 +442,10 @@ export default function DailyKwhBarCard({
 
                     <Text
                       style={{
-                        fontSize: 11,
-                        color: "#666",
+                        fontSize: 13,
+                        color: "#374151",
                         textAlign: "center",
+                        fontWeight: "700",
                       }}
                     >
                       {item.label}
@@ -463,13 +475,13 @@ export default function DailyKwhBarCard({
             style={{
               flexDirection: "row",
               alignItems: "flex-end",
-              gap: activeTab === "daily" ? 18 : 14,
+              gap: activeTab === "daily" ? 14 : 14,
               minHeight: chartHeight + 70,
               paddingTop: 16,
               paddingBottom: 8,
             }}
           >
-            {activeBars.map((item) => {
+            {activeBars.map((item, index) => {
               const barHeight = Math.max((item.kwh / max) * chartHeight, 10);
               const isCurrentMonthlyBar = activeTab === "monthly" && item.isCurrent;
 
@@ -477,7 +489,7 @@ export default function DailyKwhBarCard({
                 <View
                   key={item.key}
                   style={{
-                    width: activeTab === "daily" ? 62 : 78,
+                    width: activeTab === "daily" ? 70 : 78,
                     alignItems: "center",
                     justifyContent: "flex-end",
                     gap: 8,
@@ -495,7 +507,7 @@ export default function DailyKwhBarCard({
 
                   <View
                     style={{
-                      width: activeTab === "daily" ? 38 : 44,
+                      width: activeTab === "daily" ? 26 : 44,
                       height: barHeight,
                       borderRadius: 8,
                       backgroundColor: isCurrentMonthlyBar ? "#2563eb" : "#111",
@@ -510,7 +522,7 @@ export default function DailyKwhBarCard({
                       fontWeight: isCurrentMonthlyBar ? "800" : "400",
                     }}
                   >
-                    {item.label}
+                    {activeTab === "daily" && index % 2 !== 0 ? "" : item.label}
                   </Text>
                 </View>
               );
@@ -521,9 +533,9 @@ export default function DailyKwhBarCard({
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         {activeTab === "daily"
-          ? `Daily tab shows only the current month batch (${result.batchLabel}).`
+          ? `Daily tab shows a rolling ${days}-day window (${result.visibleLabel}).`
           : activeTab === "compare14"
-          ? "Blue = current visible 14-day window. Gray = immediately previous 14-day window."
+          ? "Compare tab is simplified into 2 weekly buckets: Older 7d and Recent 7d."
           : "Monthly totals still include the full current month."}
       </Text>
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
