@@ -117,16 +117,14 @@ export default function DailyKwhBarCard({
   months?: number;
 }) {
   const [activeTab, setActiveTab] = useState<KwhTab>("monthly");
+  const [compareOffsetBlocks, setCompareOffsetBlocks] = useState(0);
 
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const result = useDailyKwh(days, months);
+  const result = useDailyKwh(days, months, compareOffsetBlocks);
   const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
-  const compare14WeeklyData = Array.isArray(result.compare14WeeklyData)
-    ? result.compare14WeeklyData
-    : [];
 
   const dailySummary = result.dailySummary ?? {
     current: result.summary?.today ?? 0,
@@ -220,8 +218,9 @@ export default function DailyKwhBarCard({
 
   const activeSummary = activeTab === "monthly" ? monthlySummary : dailySummary;
 
-  const compareMax = Math.max(
-    ...compare14WeeklyData.flatMap((item) => [item.currentKwh, item.previousKwh]),
+  const compareTotalMax = Math.max(
+    compare14Summary.currentTotal,
+    compare14Summary.previousTotal,
     1
   );
 
@@ -232,14 +231,14 @@ export default function DailyKwhBarCard({
     activeTab === "daily"
       ? "Daily kWh Bar Graph"
       : activeTab === "compare14"
-      ? "Compare 14-Day kWh"
+      ? "Compare 14-Day Totals"
       : "Monthly kWh Bar Graph";
 
   const subtitle =
     activeTab === "daily"
       ? `${result.batchLabel}. ${result.visibleLabel}`
       : activeTab === "compare14"
-      ? "Blue = current 14d. Gray = previous 14d. Each bar represents 7 days."
+      ? "Simple 14-day pair comparison. Use Older Pair / Newer Pair to browse succeeding 14-day windows."
       : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
 
   const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
@@ -262,7 +261,7 @@ export default function DailyKwhBarCard({
     });
 
     return () => cancelAnimationFrame(id);
-  }, [activeTab, activeBars.length, compare14WeeklyData.length]);
+  }, [activeTab, activeBars.length, compareOffsetBlocks]);
 
   return (
     <View
@@ -329,27 +328,67 @@ export default function DailyKwhBarCard({
       ) : null}
 
       {activeTab === "compare14" ? (
-        <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-          <SummaryBox label="Current 14d kWh" value={compare14Summary.currentTotal.toFixed(2)} />
-          <SummaryBox label="Previous 14d kWh" value={compare14Summary.previousTotal.toFixed(2)} />
-          <SummaryBox label="Delta kWh" value={compare14Summary.deltaKwh.toFixed(2)} />
-          <SummaryBox
-            label="Delta %"
-            value={
-              compare14Summary.deltaPercent === null
-                ? "—"
-                : `${compare14Summary.deltaPercent.toFixed(2)}%`
-            }
-          />
-          <SummaryBox
-            label="Current peak day"
-            value={`${compare14Summary.currentPeakLabel} (${compare14Summary.currentPeakKwh.toFixed(2)})`}
-          />
-          <SummaryBox
-            label="Previous peak day"
-            value={`${compare14Summary.previousPeakLabel} (${compare14Summary.previousPeakKwh.toFixed(2)})`}
-          />
-        </View>
+        <>
+          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+            <Pressable
+              onPress={() => setCompareOffsetBlocks((v) => v + 1)}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "#d1d5db",
+                backgroundColor: "#fff",
+              }}
+            >
+              <Text style={{ fontWeight: "700" }}>Older Pair</Text>
+            </Pressable>
+
+            <Pressable
+              disabled={!result.compareCanGoNewer}
+              onPress={() => setCompareOffsetBlocks((v) => Math.max(0, v - 1))}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 14,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: "#d1d5db",
+                backgroundColor: "#fff",
+                opacity: result.compareCanGoNewer ? 1 : 0.5,
+              }}
+            >
+              <Text style={{ fontWeight: "700" }}>Newer Pair</Text>
+            </Pressable>
+          </View>
+
+          <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+            <SummaryBox
+              label={`Current 14d kWh (${result.compareCurrentLabel})`}
+              value={compare14Summary.currentTotal.toFixed(2)}
+            />
+            <SummaryBox
+              label={`Previous 14d kWh (${result.comparePreviousLabel})`}
+              value={compare14Summary.previousTotal.toFixed(2)}
+            />
+            <SummaryBox label="Delta kWh" value={compare14Summary.deltaKwh.toFixed(2)} />
+            <SummaryBox
+              label="Delta %"
+              value={
+                compare14Summary.deltaPercent === null
+                  ? "—"
+                  : `${compare14Summary.deltaPercent.toFixed(2)}%`
+              }
+            />
+            <SummaryBox
+              label="Current peak day"
+              value={`${compare14Summary.currentPeakLabel} (${compare14Summary.currentPeakKwh.toFixed(2)})`}
+            />
+            <SummaryBox
+              label="Previous peak day"
+              value={`${compare14Summary.previousPeakLabel} (${compare14Summary.previousPeakKwh.toFixed(2)})`}
+            />
+          </View>
+        </>
       ) : (
         <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
           <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
@@ -362,100 +401,138 @@ export default function DailyKwhBarCard({
       )}
 
       {activeTab === "compare14" ? (
-        !compare14WeeklyData.length ? (
-          <Text style={{ color: "#666" }}>No comparison data available yet.</Text>
-        ) : (
-          <ScrollView
-            ref={scrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            onContentSizeChange={() => {
-              scrollRef.current?.scrollToEnd({ animated: false });
+        <ScrollView
+          ref={scrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          onContentSizeChange={() => {
+            scrollRef.current?.scrollToEnd({ animated: false });
+          }}
+        >
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "flex-end",
+              gap: 40,
+              minHeight: chartHeight + 90,
+              paddingTop: 16,
+              paddingBottom: 8,
+              paddingHorizontal: 8,
             }}
           >
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "flex-end",
-                gap: 28,
-                minHeight: chartHeight + 90,
-                paddingTop: 16,
-                paddingBottom: 8,
-                paddingHorizontal: 8,
+                width: 160,
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 10,
               }}
             >
-              {compare14WeeklyData.map((item) => {
-                const currentHeight = Math.max(
-                  (item.currentKwh / compareMax) * chartHeight,
-                  item.currentKwh > 0 ? 14 : 0
-                );
-                const previousHeight = Math.max(
-                  (item.previousKwh / compareMax) * chartHeight,
-                  item.previousKwh > 0 ? 14 : 0
-                );
+              <View style={{ alignItems: "center", gap: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
+                  {compare14Summary.previousTotal.toFixed(2)}
+                </Text>
+              </View>
 
-                return (
-                  <View
-                    key={item.weekKey}
-                    style={{
-                      width: 140,
-                      alignItems: "center",
-                      justifyContent: "flex-end",
-                      gap: 10,
-                    }}
-                  >
-                    <View style={{ alignItems: "center", gap: 4 }}>
-                      <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
-                        {item.currentKwh.toFixed(2)}
-                      </Text>
-                      <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
-                        {item.previousKwh.toFixed(2)}
-                      </Text>
-                    </View>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-end",
+                  justifyContent: "center",
+                  height: chartHeight,
+                }}
+              >
+                <View
+                  style={{
+                    width: 56,
+                    height: Math.max(
+                      (compare14Summary.previousTotal / compareTotalMax) * chartHeight,
+                      compare14Summary.previousTotal > 0 ? 14 : 0
+                    ),
+                    borderRadius: 10,
+                    backgroundColor: "#9ca3af",
+                  }}
+                />
+              </View>
 
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "flex-end",
-                        justifyContent: "center",
-                        gap: 12,
-                        height: chartHeight,
-                      }}
-                    >
-                      <View
-                        style={{
-                          width: 34,
-                          height: currentHeight,
-                          borderRadius: 8,
-                          backgroundColor: "#2563eb",
-                        }}
-                      />
-                      <View
-                        style={{
-                          width: 34,
-                          height: previousHeight,
-                          borderRadius: 8,
-                          backgroundColor: "#9ca3af",
-                        }}
-                      />
-                    </View>
-
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: "#374151",
-                        textAlign: "center",
-                        fontWeight: "700",
-                      }}
-                    >
-                      {item.label}
-                    </Text>
-                  </View>
-                );
-              })}
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: "#374151",
+                  textAlign: "center",
+                  fontWeight: "700",
+                }}
+              >
+                Previous 14d
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "#6b7280",
+                  textAlign: "center",
+                }}
+              >
+                {result.comparePreviousLabel}
+              </Text>
             </View>
-          </ScrollView>
-        )
+
+            <View
+              style={{
+                width: 160,
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 10,
+              }}
+            >
+              <View style={{ alignItems: "center", gap: 4 }}>
+                <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
+                  {compare14Summary.currentTotal.toFixed(2)}
+                </Text>
+              </View>
+
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-end",
+                  justifyContent: "center",
+                  height: chartHeight,
+                }}
+              >
+                <View
+                  style={{
+                    width: 56,
+                    height: Math.max(
+                      (compare14Summary.currentTotal / compareTotalMax) * chartHeight,
+                      compare14Summary.currentTotal > 0 ? 14 : 0
+                    ),
+                    borderRadius: 10,
+                    backgroundColor: "#2563eb",
+                  }}
+                />
+              </View>
+
+              <Text
+                style={{
+                  fontSize: 13,
+                  color: "#374151",
+                  textAlign: "center",
+                  fontWeight: "700",
+                }}
+              >
+                Current 14d
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: "#6b7280",
+                  textAlign: "center",
+                }}
+              >
+                {result.compareCurrentLabel}
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
       ) : !activeBars.length ? (
         <Text style={{ color: "#666" }}>
           {activeTab === "daily"
@@ -475,7 +552,7 @@ export default function DailyKwhBarCard({
             style={{
               flexDirection: "row",
               alignItems: "flex-end",
-              gap: activeTab === "daily" ? 14 : 14,
+              gap: 14,
               minHeight: chartHeight + 70,
               paddingTop: 16,
               paddingBottom: 8,
@@ -535,11 +612,12 @@ export default function DailyKwhBarCard({
         {activeTab === "daily"
           ? `Daily tab shows a rolling ${days}-day window (${result.visibleLabel}).`
           : activeTab === "compare14"
-          ? "Compare tab is simplified into 2 weekly buckets: Older 7d and Recent 7d."
+          ? "Compare tab shows total Previous 14d vs Current 14d. Use Older Pair / Newer Pair to browse succeeding 14-day pairs."
           : "Monthly totals still include the full current month."}
       </Text>
+
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Highest bar in this window: {(activeTab === "compare14" ? compareMax : max).toFixed(2)} kWh
+        Highest bar in this window: {(activeTab === "compare14" ? compareTotalMax : max).toFixed(2)} kWh
       </Text>
     </View>
   );
