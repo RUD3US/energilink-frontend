@@ -16,6 +16,13 @@ export type Compare14DayPoint = {
   previousFullLabel: string;
 };
 
+export type Compare14WeekPoint = {
+  weekKey: string;
+  label: string;
+  currentKwh: number;
+  previousKwh: number;
+};
+
 export type MonthlyKwhBarPoint = {
   monthKey: string;
   label: string;
@@ -124,6 +131,10 @@ function localMonthKey(ms: number) {
 
 function toKwh(powerWatts: number, hours: number) {
   return (powerWatts / 1000) * hours;
+}
+
+function sumKwh(values: number[]) {
+  return Number(values.reduce((sum, v) => sum + v, 0).toFixed(2));
 }
 
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
@@ -290,7 +301,9 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
       try {
         parsed = JSON.parse(text);
       } catch {
-        throw new Error(`History endpoint did not return JSON. Response starts with: ${text.slice(0, 120)}`);
+        throw new Error(
+          `History endpoint did not return JSON. Response starts with: ${text.slice(0, 120)}`
+        );
       }
 
       setPoints(Array.isArray(parsed) ? (parsed as HistoryPoint[]) : []);
@@ -384,6 +397,26 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     });
   }, [sorted, batchInfo]);
 
+  const compare14WeeklyData = useMemo<Compare14WeekPoint[]>(() => {
+    const olderHalf = compare14Data.slice(0, 7);
+    const recentHalf = compare14Data.slice(7, 14);
+
+    return [
+      {
+        weekKey: "older-7d",
+        label: "Older 7d",
+        currentKwh: sumKwh(olderHalf.map((item) => item.currentKwh)),
+        previousKwh: sumKwh(olderHalf.map((item) => item.previousKwh)),
+      },
+      {
+        weekKey: "recent-7d",
+        label: "Recent 7d",
+        currentKwh: sumKwh(recentHalf.map((item) => item.currentKwh)),
+        previousKwh: sumKwh(recentHalf.map((item) => item.previousKwh)),
+      },
+    ].filter((item) => item.currentKwh > 0 || item.previousKwh > 0);
+  }, [compare14Data]);
+
   const compare14Summary = useMemo(() => {
     const currentData = compare14Data.map((item) => ({
       label: item.currentFullLabel,
@@ -476,6 +509,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
     dailyData,
     compare14Data,
+    compare14WeeklyData,
     compare14Summary,
     monthlyData,
     dailySummary,
