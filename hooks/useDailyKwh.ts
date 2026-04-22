@@ -16,13 +16,6 @@ export type Compare14DayPoint = {
   previousFullLabel: string;
 };
 
-export type Compare14WeekPoint = {
-  weekKey: string;
-  label: string;
-  currentKwh: number;
-  previousKwh: number;
-};
-
 export type MonthlyKwhBarPoint = {
   monthKey: string;
   label: string;
@@ -60,6 +53,7 @@ type HistoryPoint = {
 
 const API_HISTORY_LIMIT = 5000;
 const MAX_GAP_HOURS = 1;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -131,10 +125,6 @@ function localMonthKey(ms: number) {
 
 function toKwh(powerWatts: number, hours: number) {
   return (powerWatts / 1000) * hours;
-}
-
-function sumKwh(values: number[]) {
-  return Number(values.reduce((sum, v) => sum + v, 0).toFixed(2));
 }
 
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
@@ -213,7 +203,7 @@ function buildDailyWindowData(
   for (
     let cursor = startOfDayMs(startMs);
     cursor <= endMs;
-    cursor += 24 * 60 * 60 * 1000
+    cursor += DAY_MS
   ) {
     buckets.set(localDayKey(cursor), 0);
   }
@@ -275,7 +265,12 @@ function buildRangeLabelFromMs(startMs: number, endMs: number) {
   return `${startText}-${endText}`;
 }
 
-export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
+export function useDailyKwh(
+  days = 14,
+  months = 12,
+  compareOffsetBlocks = 0,
+  device = DEFAULT_DEVICE
+) {
   const [points, setPoints] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -316,7 +311,7 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
   useEffect(() => {
     refresh();
-  }, [days, months, device]);
+  }, [days, months, compareOffsetBlocks, device]);
 
   const sorted = useMemo(() => {
     return points
@@ -351,36 +346,52 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     return buildDailyWindowData(sorted, batchInfo.startMs, batchInfo.endMs);
   }, [sorted, batchInfo]);
 
+  const compareInfo = useMemo(() => {
+    const anchorEndBase = endOfDayMs(Date.now());
+    const shiftedEnd = anchorEndBase - compareOffsetBlocks * days * DAY_MS;
+
+    const currentEndMs = endOfDayMs(shiftedEnd);
+    const currentStartMs = startOfDayMs(currentEndMs - (days - 1) * DAY_MS);
+
+    const previousEndMs = endOfDayMs(currentStartMs - 1);
+    const previousStartMs = startOfDayMs(previousEndMs - (days - 1) * DAY_MS);
+
+    const earliestMs = sorted[0]?.timeMs ?? null;
+
+    return {
+      currentStartMs,
+      currentEndMs,
+      previousStartMs,
+      previousEndMs,
+      currentLabel: buildRangeLabelFromMs(currentStartMs, currentEndMs),
+      previousLabel: buildRangeLabelFromMs(previousStartMs, previousEndMs),
+      canGoNewer: compareOffsetBlocks > 0,
+      canGoOlder: earliestMs !== null ? earliestMs <= previousStartMs : false,
+    };
+  }, [sorted, days, compareOffsetBlocks]);
+
+  const compareCurrentWindow = useMemo<DailyKwhBarPoint[]>(() => {
+    return buildDailyWindowData(
+      sorted,
+      compareInfo.currentStartMs,
+      compareInfo.currentEndMs
+    );
+  }, [sorted, compareInfo]);
+
+  const comparePreviousWindow = useMemo<DailyKwhBarPoint[]>(() => {
+    return buildDailyWindowData(
+      sorted,
+      compareInfo.previousStartMs,
+      compareInfo.previousEndMs
+    );
+  }, [sorted, compareInfo]);
+
   const compare14Data = useMemo<Compare14DayPoint[]>(() => {
-    const currentStartMs = batchInfo.startMs;
-    const currentEndMs = batchInfo.endMs;
-
-    const currentWindow = buildDailyWindowData(sorted, currentStartMs, currentEndMs);
-
-    const currentLength = currentWindow.length;
-    const previousEndDate = new Date(currentStartMs - 1);
-    const previousEndMs = new Date(
-      previousEndDate.getFullYear(),
-      previousEndDate.getMonth(),
-      previousEndDate.getDate(),
-      23,
-      59,
-      59,
-      999
-    ).getTime();
-
-    const previousStartDate = new Date(previousEndMs);
-    previousStartDate.setDate(previousStartDate.getDate() - (currentLength - 1));
-    previousStartDate.setHours(0, 0, 0, 0);
-    const previousStartMs = previousStartDate.getTime();
-
-    const previousWindow = buildDailyWindowData(sorted, previousStartMs, previousEndMs);
-
-    const maxLen = Math.max(currentWindow.length, previousWindow.length);
+    const maxLen = Math.max(compareCurrentWindow.length, comparePreviousWindow.length);
 
     return Array.from({ length: maxLen }).map((_, index) => {
-      const currentItem = currentWindow[index];
-      const previousItem = previousWindow[index];
+      const currentItem = compareCurrentWindow[index];
+      const previousItem = comparePreviousWindow[index];
 
       return {
         slotKey: `slot-${index}`,
@@ -395,41 +406,11 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
           : "—",
       };
     });
-  }, [sorted, batchInfo]);
-
-  const compare14WeeklyData = useMemo<Compare14WeekPoint[]>(() => {
-    const olderHalf = compare14Data.slice(0, 7);
-    const recentHalf = compare14Data.slice(7, 14);
-
-    return [
-      {
-        weekKey: "older-7d",
-        label: "Older 7d",
-        currentKwh: sumKwh(olderHalf.map((item) => item.currentKwh)),
-        previousKwh: sumKwh(olderHalf.map((item) => item.previousKwh)),
-      },
-      {
-        weekKey: "recent-7d",
-        label: "Recent 7d",
-        currentKwh: sumKwh(recentHalf.map((item) => item.currentKwh)),
-        previousKwh: sumKwh(recentHalf.map((item) => item.previousKwh)),
-      },
-    ].filter((item) => item.currentKwh > 0 || item.previousKwh > 0);
-  }, [compare14Data]);
+  }, [compareCurrentWindow, comparePreviousWindow]);
 
   const compare14Summary = useMemo(() => {
-    const currentData = compare14Data.map((item) => ({
-      label: item.currentFullLabel,
-      kwh: item.currentKwh,
-    }));
-
-    const previousData = compare14Data.map((item) => ({
-      label: item.previousFullLabel,
-      kwh: item.previousKwh,
-    }));
-
-    return buildCompare14Summary(currentData, previousData);
-  }, [compare14Data]);
+    return buildCompare14Summary(compareCurrentWindow, comparePreviousWindow);
+  }, [compareCurrentWindow, comparePreviousWindow]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
     const now = Date.now();
@@ -509,8 +490,11 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
 
     dailyData,
     compare14Data,
-    compare14WeeklyData,
     compare14Summary,
+    compareCurrentLabel: compareInfo.currentLabel,
+    comparePreviousLabel: compareInfo.previousLabel,
+    compareCanGoOlder: compareInfo.canGoOlder,
+    compareCanGoNewer: compareInfo.canGoNewer,
     monthlyData,
     dailySummary,
     monthlySummary,
