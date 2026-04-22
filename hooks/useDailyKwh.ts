@@ -1,6 +1,5 @@
-import { useEffect, useMemo } from "react";
-import { DEFAULT_DEVICE, FIELD_POWER } from "../config";
-import { useRealtime } from "./useRealtime";
+import { useEffect, useMemo, useState } from "react";
+import { API_BASE, DEFAULT_DEVICE } from "../config";
 
 export type DailyKwhBarPoint = {
   dayKey: string;
@@ -43,10 +42,17 @@ export type Compare14Summary = {
   previousPeakKwh: number;
 };
 
-const POWER_POINTS_ARE_WATTS = true;
-const MAX_GAP_HOURS = 6;
-const ARCHIVE_POINTS_PER_DAY = 96;
-const API_POINT_LIMIT = 5000;
+type HistoryPoint = {
+  time: string;
+  rms_voltage: number | null;
+  rms_current: number | null;
+  power: number | null;
+  power_factor: number | null;
+  note?: string | null;
+};
+
+const API_HISTORY_LIMIT = 5000;
+const MAX_GAP_HOURS = 1;
 
 function toMs(iso: string) {
   return new Date(iso).getTime();
@@ -116,21 +122,8 @@ function localMonthKey(ms: number) {
   return `${y}-${m}`;
 }
 
-function sanitizePoints(points: { time: string; value: number }[]) {
-  return points.filter(
-    (p) =>
-      p &&
-      typeof p.time === "string" &&
-      typeof p.value === "number" &&
-      Number.isFinite(p.value)
-  );
-}
-
-function toKwh(powerValue: number, hours: number) {
-  if (POWER_POINTS_ARE_WATTS) {
-    return (powerValue / 1000) * hours;
-  }
-  return powerValue * hours;
+function toKwh(powerWatts: number, hours: number) {
+  return (powerWatts / 1000) * hours;
 }
 
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
@@ -154,42 +147,49 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
   };
 }
 
-function getDaysInMonth(year: number, monthIndex: number) {
-  return new Date(year, monthIndex + 1, 0).getDate();
-}
+function buildCompare14Summary(
+  currentData: DailyKwhBarPoint[],
+  previousData: DailyKwhBarPoint[]
+): Compare14Summary {
+  const currentSummary = buildSummary(currentData);
+  const previousSummary = buildSummary(previousData);
 
-function getBatchRange(now: Date) {
-  const year = now.getFullYear();
-  const monthIndex = now.getMonth();
-  const todayDay = now.getDate();
-  const daysInMonth = getDaysInMonth(year, monthIndex);
-
-  let batchStartDay = 1;
-  let batchEndDay = Math.min(14, daysInMonth);
-
-  if (todayDay >= 15 && todayDay <= 28) {
-    batchStartDay = 15;
-    batchEndDay = Math.min(28, daysInMonth);
-  } else if (todayDay >= 29) {
-    batchStartDay = 29;
-    batchEndDay = daysInMonth;
-  }
+  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(2));
+  const deltaPercent =
+    previousSummary.total > 0
+      ? Number(
+          (
+            ((currentSummary.total - previousSummary.total) / previousSummary.total) *
+            100
+          ).toFixed(2)
+        )
+      : null;
 
   return {
-    year,
-    monthIndex,
-    todayDay,
-    daysInMonth,
-    batchStartDay,
-    batchEndDay,
+    currentTotal: currentSummary.total,
+    previousTotal: previousSummary.total,
+    deltaKwh,
+    deltaPercent,
+    currentPeakLabel: currentSummary.peakLabel,
+    currentPeakKwh: currentSummary.peakKwh,
+    previousPeakLabel: previousSummary.peakLabel,
+    previousPeakKwh: previousSummary.peakKwh,
   };
 }
 
-function buildRangeLabel(year: number, monthIndex: number, startDay: number, endDay: number) {
-  const start = new Date(year, monthIndex, startDay);
-  const end = new Date(year, monthIndex, endDay);
-  const month = start.toLocaleDateString(undefined, { month: "short" });
-  return `${month} ${start.getDate()}-${end.getDate()}`;
+function isValidHistoryPoint(p: HistoryPoint) {
+  if (!p) return false;
+  if (typeof p.time !== "string") return false;
+  if (typeof p.power !== "number" || !Number.isFinite(p.power)) return false;
+  if (typeof p.rms_voltage !== "number" || !Number.isFinite(p.rms_voltage)) return false;
+  if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
+  if (typeof p.power_factor !== "number" || !Number.isFinite(p.power_factor)) return false;
+
+  if (p.power < 0) return false;
+  if (p.rms_voltage === 0 && p.rms_current === 0) return false;
+  if (p.power_factor <= 0.001 && p.power > 50) return false;
+
+  return true;
 }
 
 function buildDailyWindowData(
@@ -202,7 +202,7 @@ function buildDailyWindowData(
   for (
     let cursor = startOfDayMs(startMs);
     cursor <= endMs;
-    cursor = startOfDayMs(cursor + 24 * 60 * 60 * 1000)
+    cursor += 24 * 60 * 60 * 1000
   ) {
     buckets.set(localDayKey(cursor), 0);
   }
@@ -250,43 +250,55 @@ function buildDailyWindowData(
   });
 }
 
-function buildCompare14Summary(
-  currentData: DailyKwhBarPoint[],
-  previousData: DailyKwhBarPoint[]
-): Compare14Summary {
-  const currentSummary = buildSummary(currentData);
-  const previousSummary = buildSummary(previousData);
-
-  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(2));
-  const deltaPercent =
-    previousSummary.total > 0
-      ? Number((((currentSummary.total - previousSummary.total) / previousSummary.total) * 100).toFixed(2))
-      : null;
-
-  return {
-    currentTotal: currentSummary.total,
-    previousTotal: previousSummary.total,
-    deltaKwh,
-    deltaPercent,
-    currentPeakLabel: currentSummary.peakLabel,
-    currentPeakKwh: currentSummary.peakKwh,
-    previousPeakLabel: previousSummary.peakLabel,
-    previousPeakKwh: previousSummary.peakKwh,
-  };
+function buildRangeLabelFromMs(startMs: number, endMs: number) {
+  const start = new Date(startMs);
+  const end = new Date(endMs);
+  const startText = start.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  const endText = end.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+  return `${startText}-${endText}`;
 }
 
 export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
-  const powerRT = useRealtime(device, FIELD_POWER);
+  const [points, setPoints] = useState<HistoryPoint[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const refresh = () => {
-    const now = new Date();
-    const { daysInMonth } = getBatchRange(now);
-    const estimatedPoints = Math.min(
-      Math.max(daysInMonth * ARCHIVE_POINTS_PER_DAY + 128, 500),
-      API_POINT_LIMIT
-    );
+  const refresh = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-    powerRT.refresh(String(estimatedPoints));
+      const qs = new URLSearchParams({
+        device,
+        limit: String(API_HISTORY_LIMIT),
+      }).toString();
+
+      const res = await fetch(`${API_BASE}/public/history?${qs}`);
+      const text = await res.text();
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${text.slice(0, 160)}`);
+      }
+
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        throw new Error(`History endpoint did not return JSON. Response starts with: ${text.slice(0, 120)}`);
+      }
+
+      setPoints(Array.isArray(parsed) ? (parsed as HistoryPoint[]) : []);
+    } catch (e: any) {
+      setError(String(e?.message ?? e));
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -294,46 +306,41 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
   }, [days, months, device]);
 
   const sorted = useMemo(() => {
-    return sanitizePoints(powerRT.points)
+    return points
+      .filter(isValidHistoryPoint)
       .map((p) => ({
         timeMs: toMs(p.time),
-        power: p.value,
+        power: p.power as number,
       }))
       .filter((p) => Number.isFinite(p.timeMs) && Number.isFinite(p.power))
       .sort((a, b) => a.timeMs - b.timeMs);
-  }, [powerRT.points]);
+  }, [points]);
 
   const batchInfo = useMemo(() => {
-    const range = getBatchRange(new Date());
+    const now = new Date();
+    const endMs = endOfDayMs(now.getTime());
+    const startDate = new Date(endMs);
+    startDate.setDate(startDate.getDate() - (days - 1));
+    startDate.setHours(0, 0, 0, 0);
+    const startMs = startDate.getTime();
+
     return {
-      ...range,
-      batchLabel: buildRangeLabel(
-        range.year,
-        range.monthIndex,
-        range.batchStartDay,
-        range.batchEndDay
-      ),
-      visibleLabel: buildRangeLabel(
-        range.year,
-        range.monthIndex,
-        range.batchStartDay,
-        range.todayDay
-      ),
+      startMs,
+      endMs,
+      batchLabel: `Last ${days} days`,
+      visibleLabel: buildRangeLabelFromMs(startMs, endMs),
+      todayDay: now.getDate(),
+      daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
     };
-  }, [sorted.length]);
+  }, [days, sorted.length]);
 
   const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
-    const { year, monthIndex, todayDay, batchStartDay } = batchInfo;
-    const fromMs = new Date(year, monthIndex, batchStartDay, 0, 0, 0, 0).getTime();
-    const toMsLimit = new Date(year, monthIndex, todayDay, 23, 59, 59, 999).getTime();
-    return buildDailyWindowData(sorted, fromMs, toMsLimit);
+    return buildDailyWindowData(sorted, batchInfo.startMs, batchInfo.endMs);
   }, [sorted, batchInfo]);
 
   const compare14Data = useMemo<Compare14DayPoint[]>(() => {
-    const { year, monthIndex, todayDay, batchStartDay } = batchInfo;
-
-    const currentStartMs = new Date(year, monthIndex, batchStartDay, 0, 0, 0, 0).getTime();
-    const currentEndMs = new Date(year, monthIndex, todayDay, 23, 59, 59, 999).getTime();
+    const currentStartMs = batchInfo.startMs;
+    const currentEndMs = batchInfo.endMs;
 
     const currentWindow = buildDailyWindowData(sorted, currentStartMs, currentEndMs);
 
@@ -475,13 +482,11 @@ export function useDailyKwh(days = 14, months = 12, device = DEFAULT_DEVICE) {
     monthlySummary,
     batchLabel: batchInfo.batchLabel,
     visibleLabel: batchInfo.visibleLabel,
-    batchStartDay: batchInfo.batchStartDay,
-    batchEndDay: batchInfo.batchEndDay,
     todayDay: batchInfo.todayDay,
     daysInMonth: batchInfo.daysInMonth,
 
     refresh,
-    loading: powerRT.loading,
-    error: powerRT.error,
+    loading,
+    error,
   };
 }
