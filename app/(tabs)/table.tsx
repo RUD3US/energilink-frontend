@@ -31,13 +31,20 @@ function formatValue(
   decimals: number,
   unit?: string
 ) {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "—";
+  }
+
   return `${value.toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
 }
 
 function formatTime(value: string) {
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
+
+  if (Number.isNaN(d.getTime())) {
+    return value;
+  }
+
   return d.toLocaleString();
 }
 
@@ -50,14 +57,19 @@ function latestNonNull(
 ) {
   for (const row of rows) {
     const v = row[key];
-    if (typeof v === "number" && Number.isFinite(v)) return v;
+
+    if (typeof v === "number" && Number.isFinite(v)) {
+      return v;
+    }
   }
 
   return null;
 }
 
 function escapeCsvValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined) return "";
+  if (value === null || value === undefined) {
+    return "";
+  }
 
   const stringValue = String(value);
 
@@ -74,7 +86,10 @@ function escapeCsvValue(value: string | number | null | undefined) {
 
 function monthKeyFromTime(value: string) {
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "";
+
+  if (Number.isNaN(d.getTime())) {
+    return "";
+  }
 
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -84,7 +99,10 @@ function monthKeyFromTime(value: string) {
 
 function monthLabelFromKey(key: string) {
   const [year, month] = key.split("-").map(Number);
-  if (!year || !month) return key;
+
+  if (!year || !month) {
+    return key;
+  }
 
   const d = new Date(year, month - 1, 1);
 
@@ -96,7 +114,10 @@ function monthLabelFromKey(key: string) {
 
 function shiftMonthKey(key: string, offset: number) {
   const [year, month] = key.split("-").map(Number);
-  if (!year || !month) return key;
+
+  if (!year || !month) {
+    return key;
+  }
 
   const d = new Date(year, month - 1, 1);
   d.setMonth(d.getMonth() + offset);
@@ -119,21 +140,21 @@ function EditableNoteCell({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(row.note ?? "");
   const [saving, setSaving] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     setDraft(row.note ?? "");
   }, [row.note]);
 
-  async function handleSave(nextText?: string) {
-    const textToSave = nextText ?? draft;
-
+  async function handleSave() {
     try {
       setSaving(true);
+      setLocalError(null);
 
       const result = await saveHistoryNote(token, {
         device: DEFAULT_DEVICE,
         time: row.time,
-        text: textToSave,
+        text: draft,
         anchor_field: "power",
       });
 
@@ -141,7 +162,33 @@ function EditableNoteCell({
       setDraft(result.note ?? "");
       setEditing(false);
     } catch (e: any) {
-      Alert.alert("Save failed", String(e?.message ?? e));
+      const msg = String(e?.message ?? e);
+      setLocalError(msg);
+      Alert.alert("Save failed", msg);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      setSaving(true);
+      setLocalError(null);
+
+      const result = await saveHistoryNote(token, {
+        device: DEFAULT_DEVICE,
+        time: row.time,
+        text: "",
+        anchor_field: "power",
+      });
+
+      onSaved(row.time, result.note ?? null, result.note_id ?? null);
+      setDraft("");
+      setEditing(false);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      setLocalError(msg);
+      Alert.alert("Delete failed", msg);
     } finally {
       setSaving(false);
     }
@@ -169,7 +216,7 @@ function EditableNoteCell({
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
           <Pressable
             disabled={saving}
-            onPress={() => handleSave()}
+            onPress={handleSave}
             style={{
               paddingVertical: 8,
               paddingHorizontal: 10,
@@ -188,6 +235,7 @@ function EditableNoteCell({
             onPress={() => {
               setDraft(row.note ?? "");
               setEditing(false);
+              setLocalError(null);
             }}
             style={{
               paddingVertical: 8,
@@ -200,25 +248,13 @@ function EditableNoteCell({
           >
             <Text style={{ fontWeight: "700" }}>Cancel</Text>
           </Pressable>
-
-          <Pressable
-            disabled={saving}
-            onPress={() => handleSave("")}
-            style={{
-              paddingVertical: 8,
-              paddingHorizontal: 10,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: "#fecaca",
-              backgroundColor: "#fef2f2",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            <Text style={{ color: "#b91c1c", fontWeight: "700" }}>
-              Clear
-            </Text>
-          </Pressable>
         </View>
+
+        {localError ? (
+          <Text style={{ color: "red", fontSize: 12 }}>
+            {localError}
+          </Text>
+        ) : null}
       </View>
     );
   }
@@ -229,22 +265,57 @@ function EditableNoteCell({
         {row.note?.trim() ? row.note : "—"}
       </Text>
 
-      <Pressable
-        onPress={() => setEditing(true)}
-        style={{
-          alignSelf: "flex-start",
-          paddingVertical: 7,
-          paddingHorizontal: 10,
-          borderRadius: 8,
-          borderWidth: 1,
-          borderColor: "#d1d5db",
-          backgroundColor: "#fff",
-        }}
-      >
-        <Text style={{ fontWeight: "700" }}>
-          {row.note?.trim() ? "Edit Note" : "Add Note"}
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        <Pressable
+          disabled={saving}
+          onPress={() => {
+            setDraft(row.note ?? "");
+            setEditing(true);
+            setLocalError(null);
+          }}
+          style={{
+            alignSelf: "flex-start",
+            paddingVertical: 7,
+            paddingHorizontal: 10,
+            borderRadius: 8,
+            borderWidth: 1,
+            borderColor: "#d1d5db",
+            backgroundColor: "#fff",
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          <Text style={{ fontWeight: "700" }}>
+            {row.note?.trim() ? "Edit" : "Add Note"}
+          </Text>
+        </Pressable>
+
+        {row.note?.trim() ? (
+          <Pressable
+            disabled={saving}
+            onPress={handleDelete}
+            style={{
+              alignSelf: "flex-start",
+              paddingVertical: 7,
+              paddingHorizontal: 10,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: "#fecaca",
+              backgroundColor: "#fef2f2",
+              opacity: saving ? 0.6 : 1,
+            }}
+          >
+            <Text style={{ color: "#b91c1c", fontWeight: "700" }}>
+              {saving ? "Deleting..." : "Delete"}
+            </Text>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {localError ? (
+        <Text style={{ color: "red", fontSize: 12 }}>
+          {localError}
         </Text>
-      </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -279,7 +350,9 @@ export default function TableScreen() {
         const text = await res.text();
 
         if (!res.ok) {
-          throw new Error(`Request failed (${res.status}): ${text.slice(0, 160)}`);
+          throw new Error(
+            `Request failed (${res.status}): ${text.slice(0, 160)}`
+          );
         }
 
         let parsed: unknown;
@@ -288,7 +361,10 @@ export default function TableScreen() {
           parsed = JSON.parse(text);
         } catch {
           throw new Error(
-            `History endpoint did not return JSON. Response starts with: ${text.slice(0, 120)}`
+            `History endpoint did not return JSON. Response starts with: ${text.slice(
+              0,
+              120
+            )}`
           );
         }
 
@@ -297,7 +373,10 @@ export default function TableScreen() {
 
         if (!selectedMonth && nextRows.length > 0) {
           const firstMonth = monthKeyFromTime(nextRows[0].time);
-          if (firstMonth) setSelectedMonth(firstMonth);
+
+          if (firstMonth) {
+            setSelectedMonth(firstMonth);
+          }
         }
       } catch (e: any) {
         setError(String(e?.message ?? e));
@@ -330,13 +409,17 @@ export default function TableScreen() {
   }, [availableMonths, selectedMonth]);
 
   const filteredRows = useMemo(() => {
-    if (!selectedMonth) return rows;
+    if (!selectedMonth) {
+      return rows;
+    }
 
     return rows.filter((row) => monthKeyFromTime(row.time) === selectedMonth);
   }, [rows, selectedMonth]);
 
   const exportToCSV = useCallback(() => {
-    if (!filteredRows.length) return;
+    if (!filteredRows.length) {
+      return;
+    }
 
     if (typeof document === "undefined") {
       setError("CSV export is only available on web.");
@@ -438,7 +521,8 @@ export default function TableScreen() {
         </Text>
 
         <Text style={{ color: "#555", lineHeight: 20 }}>
-          You must log in first before you can manually edit notes in the History Table.
+          You must log in first before you can manually edit notes in the
+          History Table.
         </Text>
 
         <AuthPanel
@@ -461,7 +545,10 @@ export default function TableScreen() {
     <ScrollView
       contentContainerStyle={{ padding: 16, gap: 12 }}
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => fetchHistory(true)} />
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={() => fetchHistory(true)}
+        />
       }
     >
       <View
@@ -479,7 +566,8 @@ export default function TableScreen() {
         </Text>
 
         <Text style={{ color: "#555" }}>
-          This table shows voltage, current, power, power factor, and editable notes per row.
+          This table shows voltage, current, power, power factor, and editable
+          notes per row.
         </Text>
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
@@ -543,11 +631,15 @@ export default function TableScreen() {
               backgroundColor: "#f8fafc",
             }}
           >
-            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+            <Text
+              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
+            >
               Rows in selected month
             </Text>
 
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+            <Text
+              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
+            >
               {filteredRows.length}
             </Text>
           </View>
@@ -562,11 +654,15 @@ export default function TableScreen() {
               backgroundColor: "#f8fafc",
             }}
           >
-            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+            <Text
+              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
+            >
               Latest Voltage
             </Text>
 
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+            <Text
+              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
+            >
               {formatValue(latestVoltage, 2, "V")}
             </Text>
           </View>
@@ -581,11 +677,15 @@ export default function TableScreen() {
               backgroundColor: "#f8fafc",
             }}
           >
-            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+            <Text
+              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
+            >
               Latest Current
             </Text>
 
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+            <Text
+              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
+            >
               {formatValue(latestCurrent, 3, "A")}
             </Text>
           </View>
@@ -600,11 +700,15 @@ export default function TableScreen() {
               backgroundColor: "#f8fafc",
             }}
           >
-            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+            <Text
+              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
+            >
               Latest Power
             </Text>
 
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+            <Text
+              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
+            >
               {formatValue(latestPower, 2, "W")}
             </Text>
           </View>
@@ -619,11 +723,15 @@ export default function TableScreen() {
               backgroundColor: "#f8fafc",
             }}
           >
-            <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+            <Text
+              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
+            >
               Latest PF
             </Text>
 
-            <Text style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}>
+            <Text
+              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
+            >
               {formatValue(latestPf, 3)}
             </Text>
           </View>
@@ -694,27 +802,39 @@ export default function TableScreen() {
                 borderBottomColor: "#e5e7eb",
               }}
             >
-              <Text style={{ width: 220, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 220, fontWeight: "800", color: "#111827" }}
+              >
                 Time
               </Text>
 
-              <Text style={{ width: 130, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 130, fontWeight: "800", color: "#111827" }}
+              >
                 Voltage
               </Text>
 
-              <Text style={{ width: 130, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 130, fontWeight: "800", color: "#111827" }}
+              >
                 Current
               </Text>
 
-              <Text style={{ width: 130, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 130, fontWeight: "800", color: "#111827" }}
+              >
                 Power
               </Text>
 
-              <Text style={{ width: 110, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 110, fontWeight: "800", color: "#111827" }}
+              >
                 PF
               </Text>
 
-              <Text style={{ width: 320, fontWeight: "800", color: "#111827" }}>
+              <Text
+                style={{ width: 320, fontWeight: "800", color: "#111827" }}
+              >
                 Note
               </Text>
             </View>
@@ -740,7 +860,8 @@ export default function TableScreen() {
                     flexDirection: "row",
                     paddingVertical: 12,
                     paddingHorizontal: 12,
-                    borderBottomWidth: idx === filteredRows.length - 1 ? 0 : 1,
+                    borderBottomWidth:
+                      idx === filteredRows.length - 1 ? 0 : 1,
                     borderBottomColor: "#f3f4f6",
                     backgroundColor: idx % 2 === 0 ? "#fff" : "#fcfcfd",
                   }}
@@ -778,7 +899,8 @@ export default function TableScreen() {
       </View>
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Voltage, current, power, and power factor are sensor readings. Only the note column is manually editable.
+        Voltage, current, power, and power factor are sensor readings. Only the
+        note column is manually editable.
       </Text>
     </ScrollView>
   );
