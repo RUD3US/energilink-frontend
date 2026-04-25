@@ -3,7 +3,27 @@ import { API_BASE } from "../config";
 async function readErrorMessage(res: Response) {
   try {
     const data = await res.json();
-    return String(data?.detail ?? data?.message ?? `Request failed (${res.status})`);
+    const detail = data?.detail ?? data?.message;
+
+    if (typeof detail === "string") {
+      return detail;
+    }
+
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          if (typeof item === "string") return item;
+          if (item?.msg) return item.msg;
+          return JSON.stringify(item);
+        })
+        .join("\n");
+    }
+
+    if (detail && typeof detail === "object") {
+      return JSON.stringify(detail);
+    }
+
+    return `Request failed (${res.status})`;
   } catch {
     try {
       const text = await res.text();
