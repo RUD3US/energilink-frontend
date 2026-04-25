@@ -45,7 +45,9 @@ export async function signup(email: string, password: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<{ token: string }>;
 }
 
@@ -55,7 +57,9 @@ export async function login(email: string, password: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<{ token: string }>;
 }
 
@@ -78,7 +82,9 @@ export async function createNote(token: string, body: CreateNotePayload) {
     },
     body: JSON.stringify(body),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json();
 }
 
@@ -89,8 +95,47 @@ export async function deleteNote(token: string, noteId: number) {
       Authorization: `Bearer ${token}`,
     },
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json();
+}
+
+/**
+ * Saves, updates, or clears the note attached to one history table row.
+ *
+ * If text is empty, the backend should delete/clear the note.
+ */
+export type SaveHistoryNotePayload = {
+  device: string;
+  time: string;
+  text: string;
+  anchor_field?: string;
+};
+
+export async function saveHistoryNote(token: string, body: SaveHistoryNotePayload) {
+  const res = await fetch(`${API_BASE}/history/note`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      device: body.device,
+      time: body.time,
+      text: body.text,
+      anchor_field: body.anchor_field ?? "power",
+    }),
+  });
+
+  if (!res.ok) throw new Error(await readErrorMessage(res));
+
+  return res.json() as Promise<{
+    ok: boolean;
+    deleted: boolean;
+    note_id: number | null;
+    note: string | null;
+  }>;
 }
 
 export type ReportRecipient = {
@@ -180,7 +225,9 @@ export async function addReportRecipient(email: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email }),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<ReportRecipient>;
 }
 
@@ -188,7 +235,9 @@ export async function deleteReportRecipient(recipientId: number) {
   const res = await fetch(`${API_BASE}/reports/settings/recipients/${recipientId}`, {
     method: "DELETE",
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<{ ok: boolean }>;
 }
 
@@ -210,13 +259,16 @@ export async function updateReportSchedule(body: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<ReportSchedule>;
 }
 
 export async function getGempReportConfig() {
   const res = await fetch(`${API_BASE}/reports/gemp/config`);
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<{
     payload: GempReportPayload;
     updated_at: string;
@@ -268,6 +320,7 @@ export async function getMonthlyBillingRates(
 
   const res = await fetch(`${API_BASE}/billing/monthly-rates?${qs}`);
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<MonthlyBillingRate[]>;
 }
 
@@ -293,7 +346,9 @@ export async function saveMonthlyBillingRate(
     },
     body: JSON.stringify(body),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<MonthlyBillingRate>;
 }
 
@@ -310,6 +365,7 @@ export async function getMonthlyBillingSummary(params: {
 
   const res = await fetch(`${API_BASE}/billing/monthly-summary?${qs}`);
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<MonthlyBillingRow[]>;
 }
 
@@ -322,7 +378,9 @@ export async function partialResetReadings(token: string, device?: string) {
     },
     body: JSON.stringify(device ? { device } : {}),
   });
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<{
     ok: boolean;
     device?: string | null;
