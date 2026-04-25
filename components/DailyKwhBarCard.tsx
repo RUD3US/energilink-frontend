@@ -3,7 +3,7 @@ import { Pressable, ScrollView, Text, View } from "react-native";
 import { useDailyKwh, type KwhSummary } from "../hooks/useDailyKwh";
 import { useGempReport } from "../hooks/useGempReport";
 
-type KwhTab = "daily" | "compare14" | "monthly";
+type KwhTab = "period14" | "compare14" | "monthly";
 
 type ChartBar = {
   key: string;
@@ -117,11 +117,12 @@ export default function DailyKwhBarCard({
   months?: number;
 }) {
   const [activeTab, setActiveTab] = useState<KwhTab>("monthly");
-  const [compareOffsetBlocks, setCompareOffsetBlocks] = useState(0);
+  const [selectedMonthKey, setSelectedMonthKey] = useState<string | undefined>(undefined);
+  const [selectedPeriodIndex, setSelectedPeriodIndex] = useState(-1);
 
   const scrollRef = useRef<ScrollView | null>(null);
 
-  const result = useDailyKwh(days, months, compareOffsetBlocks);
+  const result = useDailyKwh(days, months, selectedMonthKey, selectedPeriodIndex);
   const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
@@ -145,6 +146,12 @@ export default function DailyKwhBarCard({
     previousPeakLabel: "—",
     previousPeakKwh: 0,
   };
+
+  useEffect(() => {
+    if (!selectedMonthKey && result.selectedMonthKey) {
+      setSelectedMonthKey(result.selectedMonthKey);
+    }
+  }, [selectedMonthKey, result.selectedMonthKey]);
 
   const currentMonthLabel = String(gemp.dynamic?.current_month_label ?? "").trim();
   const normalizedCurrentMonth = normalizeMonthLabel(currentMonthLabel);
@@ -203,17 +210,13 @@ export default function DailyKwhBarCard({
       return monthlyBars;
     }
 
-    if (activeTab === "daily") {
-      return dailyData.map((item) => ({
-        key: item.dayKey,
-        label: item.label,
-        fullLabel: item.label,
-        kwh: item.kwh,
-        isCurrent: false,
-      }));
-    }
-
-    return [];
+    return dailyData.map((item) => ({
+      key: item.dayKey,
+      label: item.label,
+      fullLabel: item.label,
+      kwh: item.kwh,
+      isCurrent: false,
+    }));
   }, [activeTab, monthlyBars, dailyData]);
 
   const activeSummary = activeTab === "monthly" ? monthlySummary : dailySummary;
@@ -227,25 +230,68 @@ export default function DailyKwhBarCard({
   const max = Math.max(...activeBars.map((d) => d.kwh), 1);
   const chartHeight = 220;
 
+  const currentMonthIndex = result.availableMonths.findIndex(
+    (m) => m.monthKey === result.selectedMonthKey
+  );
+
+  const canGoPrevMonth =
+    currentMonthIndex >= 0 && currentMonthIndex < result.availableMonths.length - 1;
+  const canGoNextMonth = currentMonthIndex > 0;
+
+  const canGoPrevPeriod = result.selectedPeriodIndex > 0;
+  const canGoNextPeriod =
+    result.selectedPeriodIndex < Math.max(result.availablePeriods.length - 1, 0);
+
+  function handlePrevMonth() {
+    if (!canGoPrevMonth) return;
+    const nextMonth = result.availableMonths[currentMonthIndex + 1];
+    if (!nextMonth) return;
+    setSelectedMonthKey(nextMonth.monthKey);
+    setSelectedPeriodIndex(-1);
+  }
+
+  function handleNextMonth() {
+    if (!canGoNextMonth) return;
+    const nextMonth = result.availableMonths[currentMonthIndex - 1];
+    if (!nextMonth) return;
+    setSelectedMonthKey(nextMonth.monthKey);
+    setSelectedPeriodIndex(-1);
+  }
+
+  function handlePrevPeriod() {
+    if (!canGoPrevPeriod) return;
+    setSelectedPeriodIndex(result.selectedPeriodIndex - 1);
+  }
+
+  function handleNextPeriod() {
+    if (!canGoNextPeriod) return;
+    setSelectedPeriodIndex(result.selectedPeriodIndex + 1);
+  }
+
   const title =
-    activeTab === "daily"
-      ? "Daily kWh Bar Graph"
+    activeTab === "period14"
+      ? "14-Day Period Daily kWh"
       : activeTab === "compare14"
-      ? "Compare 14-Day Totals"
+      ? "14-Day Period Comparison"
       : "Monthly kWh Bar Graph";
 
   const subtitle =
-    activeTab === "daily"
-      ? `${result.batchLabel}. ${result.visibleLabel}`
+    activeTab === "period14"
+      ? `${result.selectedMonthLabel} • ${result.selectedPeriodLabel}`
       : activeTab === "compare14"
-      ? "Simple 14-day pair comparison. Use Older Pair / Newer Pair to browse succeeding 14-day windows."
+      ? result.compareHasPrevious
+        ? `Current: ${result.compareCurrentLabel} • Previous: ${result.comparePreviousLabel}`
+        : `Choose a later period in ${result.selectedMonthLabel} to compare with the earlier one.`
       : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
 
-  const currentLabel = activeTab === "daily" ? "Latest day kWh" : "Current month kWh";
-  const previousLabel = activeTab === "daily" ? "Previous day kWh" : "Previous month kWh";
-  const avgLabel = activeTab === "daily" ? "Average / day" : "Average / month";
-  const totalLabel = activeTab === "daily" ? "Visible 14d kWh" : "Total period kWh";
-  const peakLabelTitle = activeTab === "daily" ? "Peak day" : "Peak month";
+  const currentLabel = activeTab === "period14" ? "Latest day kWh" : "Current month kWh";
+  const previousLabel = activeTab === "period14" ? "Previous day kWh" : "Previous month kWh";
+  const avgLabel = activeTab === "period14" ? "Average / day" : "Average / month";
+  const totalLabel =
+    activeTab === "period14"
+      ? `Total (${result.selectedPeriodDayCount}d)`
+      : "Total period kWh";
+  const peakLabelTitle = activeTab === "period14" ? "Peak day" : "Peak month";
 
   const combinedLoading = result.loading || gemp.loading;
   const combinedError = result.error || gemp.error;
@@ -261,7 +307,7 @@ export default function DailyKwhBarCard({
     });
 
     return () => cancelAnimationFrame(id);
-  }, [activeTab, activeBars.length, compareOffsetBlocks]);
+  }, [activeTab, activeBars.length, result.selectedPeriodIndex, result.selectedMonthKey]);
 
   return (
     <View
@@ -307,12 +353,12 @@ export default function DailyKwhBarCard({
 
       <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
         <TabButton
-          label="Daily"
-          active={activeTab === "daily"}
-          onPress={() => setActiveTab("daily")}
+          label="14-Day"
+          active={activeTab === "period14"}
+          onPress={() => setActiveTab("period14")}
         />
         <TabButton
-          label="Compare 14d"
+          label="Compare"
           active={activeTab === "compare14"}
           onPress={() => setActiveTab("compare14")}
         />
@@ -323,301 +369,381 @@ export default function DailyKwhBarCard({
         />
       </View>
 
+      {(activeTab === "period14" || activeTab === "compare14") && (
+        <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+          <Pressable
+            disabled={!canGoPrevMonth}
+            onPress={handlePrevMonth}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoPrevMonth ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Prev Month</Text>
+          </Pressable>
+
+          <View
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#f8fafc",
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>{result.selectedMonthLabel}</Text>
+          </View>
+
+          <Pressable
+            disabled={!canGoNextMonth}
+            onPress={handleNextMonth}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoNextMonth ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Next Month</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {(activeTab === "period14" || activeTab === "compare14") && (
+        <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
+          <Pressable
+            disabled={!canGoPrevPeriod}
+            onPress={handlePrevPeriod}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoPrevPeriod ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Prev Period</Text>
+          </Pressable>
+
+          <View
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#f8fafc",
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>{result.selectedPeriodLabel}</Text>
+          </View>
+
+          <Pressable
+            disabled={!canGoNextPeriod}
+            onPress={handleNextPeriod}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 14,
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: "#d1d5db",
+              backgroundColor: "#fff",
+              opacity: canGoNextPeriod ? 1 : 0.5,
+            }}
+          >
+            <Text style={{ fontWeight: "700" }}>Next Period</Text>
+          </Pressable>
+        </View>
+      )}
+
       {combinedError ? (
         <Text style={{ color: "red" }}>kWh error: {combinedError}</Text>
       ) : null}
 
       {activeTab === "compare14" ? (
-        <>
-          <View style={{ flexDirection: "row", gap: 10, flexWrap: "wrap" }}>
-            <Pressable
-              onPress={() => setCompareOffsetBlocks((v) => v + 1)}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: "#d1d5db",
-                backgroundColor: "#fff",
+        result.compareHasPrevious ? (
+          <>
+            <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+              <SummaryBox
+                label={`Current (${result.compareCurrentLabel})`}
+                value={compare14Summary.currentTotal.toFixed(2)}
+              />
+              <SummaryBox
+                label={`Previous (${result.comparePreviousLabel})`}
+                value={compare14Summary.previousTotal.toFixed(2)}
+              />
+              <SummaryBox label="Delta kWh" value={compare14Summary.deltaKwh.toFixed(2)} />
+              <SummaryBox
+                label="Delta %"
+                value={
+                  compare14Summary.deltaPercent === null
+                    ? "—"
+                    : `${compare14Summary.deltaPercent.toFixed(2)}%`
+                }
+              />
+              <SummaryBox
+                label="Current peak day"
+                value={`${compare14Summary.currentPeakLabel} (${compare14Summary.currentPeakKwh.toFixed(
+                  2
+                )})`}
+              />
+              <SummaryBox
+                label="Previous peak day"
+                value={`${compare14Summary.previousPeakLabel} (${compare14Summary.previousPeakKwh.toFixed(
+                  2
+                )})`}
+              />
+            </View>
+
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              onContentSizeChange={() => {
+                scrollRef.current?.scrollToEnd({ animated: false });
               }}
             >
-              <Text style={{ fontWeight: "700" }}>Older Pair</Text>
-            </Pressable>
-
-            <Pressable
-              disabled={!result.compareCanGoNewer}
-              onPress={() => setCompareOffsetBlocks((v) => Math.max(0, v - 1))}
-              style={{
-                paddingVertical: 10,
-                paddingHorizontal: 14,
-                borderRadius: 10,
-                borderWidth: 1,
-                borderColor: "#d1d5db",
-                backgroundColor: "#fff",
-                opacity: result.compareCanGoNewer ? 1 : 0.5,
-              }}
-            >
-              <Text style={{ fontWeight: "700" }}>Newer Pair</Text>
-            </Pressable>
-          </View>
-
-          <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-            <SummaryBox
-              label={`Current 14d kWh (${result.compareCurrentLabel})`}
-              value={compare14Summary.currentTotal.toFixed(2)}
-            />
-            <SummaryBox
-              label={`Previous 14d kWh (${result.comparePreviousLabel})`}
-              value={compare14Summary.previousTotal.toFixed(2)}
-            />
-            <SummaryBox label="Delta kWh" value={compare14Summary.deltaKwh.toFixed(2)} />
-            <SummaryBox
-              label="Delta %"
-              value={
-                compare14Summary.deltaPercent === null
-                  ? "—"
-                  : `${compare14Summary.deltaPercent.toFixed(2)}%`
-              }
-            />
-            <SummaryBox
-              label="Current peak day"
-              value={`${compare14Summary.currentPeakLabel} (${compare14Summary.currentPeakKwh.toFixed(2)})`}
-            />
-            <SummaryBox
-              label="Previous peak day"
-              value={`${compare14Summary.previousPeakLabel} (${compare14Summary.previousPeakKwh.toFixed(2)})`}
-            />
-          </View>
-        </>
-      ) : (
-        <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-          <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
-          <SummaryBox label={previousLabel} value={activeSummary.previous.toFixed(2)} />
-          <SummaryBox label={avgLabel} value={activeSummary.avg.toFixed(2)} />
-          <SummaryBox label={totalLabel} value={activeSummary.total.toFixed(2)} />
-          <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
-          <SummaryBox label="Peak kWh" value={activeSummary.peakKwh.toFixed(2)} />
-        </View>
-      )}
-
-      {activeTab === "compare14" ? (
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          onContentSizeChange={() => {
-            scrollRef.current?.scrollToEnd({ animated: false });
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: 40,
-              minHeight: chartHeight + 90,
-              paddingTop: 16,
-              paddingBottom: 8,
-              paddingHorizontal: 8,
-            }}
-          >
-            <View
-              style={{
-                width: 160,
-                alignItems: "center",
-                justifyContent: "flex-end",
-                gap: 10,
-              }}
-            >
-              <View style={{ alignItems: "center", gap: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
-                  {compare14Summary.previousTotal.toFixed(2)}
-                </Text>
-              </View>
-
               <View
                 style={{
                   flexDirection: "row",
                   alignItems: "flex-end",
-                  justifyContent: "center",
-                  height: chartHeight,
+                  gap: 40,
+                  minHeight: chartHeight + 90,
+                  paddingTop: 16,
+                  paddingBottom: 8,
+                  paddingHorizontal: 8,
                 }}
               >
                 <View
                   style={{
-                    width: 56,
-                    height: Math.max(
-                      (compare14Summary.previousTotal / compareTotalMax) * chartHeight,
-                      compare14Summary.previousTotal > 0 ? 14 : 0
-                    ),
-                    borderRadius: 10,
-                    backgroundColor: "#9ca3af",
-                  }}
-                />
-              </View>
-
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: "#374151",
-                  textAlign: "center",
-                  fontWeight: "700",
-                }}
-              >
-                Previous 14d
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: "#6b7280",
-                  textAlign: "center",
-                }}
-              >
-                {result.comparePreviousLabel}
-              </Text>
-            </View>
-
-            <View
-              style={{
-                width: 160,
-                alignItems: "center",
-                justifyContent: "flex-end",
-                gap: 10,
-              }}
-            >
-              <View style={{ alignItems: "center", gap: 4 }}>
-                <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
-                  {compare14Summary.currentTotal.toFixed(2)}
-                </Text>
-              </View>
-
-              <View
-                style={{
-                  flexDirection: "row",
-                  alignItems: "flex-end",
-                  justifyContent: "center",
-                  height: chartHeight,
-                }}
-              >
-                <View
-                  style={{
-                    width: 56,
-                    height: Math.max(
-                      (compare14Summary.currentTotal / compareTotalMax) * chartHeight,
-                      compare14Summary.currentTotal > 0 ? 14 : 0
-                    ),
-                    borderRadius: 10,
-                    backgroundColor: "#2563eb",
-                  }}
-                />
-              </View>
-
-              <Text
-                style={{
-                  fontSize: 13,
-                  color: "#374151",
-                  textAlign: "center",
-                  fontWeight: "700",
-                }}
-              >
-                Current 14d
-              </Text>
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: "#6b7280",
-                  textAlign: "center",
-                }}
-              >
-                {result.compareCurrentLabel}
-              </Text>
-            </View>
-          </View>
-        </ScrollView>
-      ) : !activeBars.length ? (
-        <Text style={{ color: "#666" }}>
-          {activeTab === "daily"
-            ? "No daily kWh data available yet."
-            : "No monthly kWh data available yet."}
-        </Text>
-      ) : (
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          onContentSizeChange={() => {
-            scrollRef.current?.scrollToEnd({ animated: false });
-          }}
-        >
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "flex-end",
-              gap: 14,
-              minHeight: chartHeight + 70,
-              paddingTop: 16,
-              paddingBottom: 8,
-            }}
-          >
-            {activeBars.map((item, index) => {
-              const barHeight = Math.max((item.kwh / max) * chartHeight, 10);
-              const isCurrentMonthlyBar = activeTab === "monthly" && item.isCurrent;
-
-              return (
-                <View
-                  key={item.key}
-                  style={{
-                    width: activeTab === "daily" ? 70 : 78,
+                    width: 160,
                     alignItems: "center",
                     justifyContent: "flex-end",
-                    gap: 8,
+                    gap: 10,
                   }}
                 >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: "700",
-                      color: isCurrentMonthlyBar ? "#1d4ed8" : "#111",
-                    }}
-                  >
-                    {item.kwh.toFixed(2)}
-                  </Text>
+                  <View style={{ alignItems: "center", gap: 4 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
+                      {compare14Summary.previousTotal.toFixed(2)}
+                    </Text>
+                  </View>
 
                   <View
                     style={{
-                      width: activeTab === "daily" ? 26 : 44,
-                      height: barHeight,
-                      borderRadius: 8,
-                      backgroundColor: isCurrentMonthlyBar ? "#2563eb" : "#111",
+                      flexDirection: "row",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      height: chartHeight,
                     }}
-                  />
+                  >
+                    <View
+                      style={{
+                        width: 56,
+                        height: Math.max(
+                          (compare14Summary.previousTotal / compareTotalMax) * chartHeight,
+                          compare14Summary.previousTotal > 0 ? 14 : 0
+                        ),
+                        borderRadius: 10,
+                        backgroundColor: "#9ca3af",
+                      }}
+                    />
+                  </View>
 
                   <Text
                     style={{
-                      fontSize: 11,
-                      color: isCurrentMonthlyBar ? "#1d4ed8" : "#666",
+                      fontSize: 13,
+                      color: "#374151",
                       textAlign: "center",
-                      fontWeight: isCurrentMonthlyBar ? "800" : "400",
+                      fontWeight: "700",
                     }}
                   >
-                    {activeTab === "daily" && index % 2 !== 0 ? "" : item.label}
+                    Previous Period
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6b7280",
+                      textAlign: "center",
+                    }}
+                  >
+                    {result.comparePreviousLabel}
                   </Text>
                 </View>
-              );
-            })}
+
+                <View
+                  style={{
+                    width: 160,
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: 10,
+                  }}
+                >
+                  <View style={{ alignItems: "center", gap: 4 }}>
+                    <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
+                      {compare14Summary.currentTotal.toFixed(2)}
+                    </Text>
+                  </View>
+
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "flex-end",
+                      justifyContent: "center",
+                      height: chartHeight,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: 56,
+                        height: Math.max(
+                          (compare14Summary.currentTotal / compareTotalMax) * chartHeight,
+                          compare14Summary.currentTotal > 0 ? 14 : 0
+                        ),
+                        borderRadius: 10,
+                        backgroundColor: "#2563eb",
+                      }}
+                    />
+                  </View>
+
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: "#374151",
+                      textAlign: "center",
+                      fontWeight: "700",
+                    }}
+                  >
+                    Current Period
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6b7280",
+                      textAlign: "center",
+                    }}
+                  >
+                    {result.compareCurrentLabel}
+                  </Text>
+                </View>
+              </View>
+            </ScrollView>
+          </>
+        ) : (
+          <Text style={{ color: "#666" }}>
+            This is the first period for {result.selectedMonthLabel}. Move to the next period
+            to compare it with the earlier one.
+          </Text>
+        )
+      ) : (
+        <>
+          <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
+            <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
+            <SummaryBox label={previousLabel} value={activeSummary.previous.toFixed(2)} />
+            <SummaryBox label={avgLabel} value={activeSummary.avg.toFixed(2)} />
+            <SummaryBox label={totalLabel} value={activeSummary.total.toFixed(2)} />
+            <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
+            <SummaryBox label="Peak kWh" value={activeSummary.peakKwh.toFixed(2)} />
           </View>
-        </ScrollView>
+
+          {!activeBars.length ? (
+            <Text style={{ color: "#666" }}>
+              {activeTab === "period14"
+                ? "No period data available yet."
+                : "No monthly kWh data available yet."}
+            </Text>
+          ) : (
+            <ScrollView
+              ref={scrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              onContentSizeChange={() => {
+                scrollRef.current?.scrollToEnd({ animated: false });
+              }}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-end",
+                  gap: 14,
+                  minHeight: chartHeight + 70,
+                  paddingTop: 16,
+                  paddingBottom: 8,
+                }}
+              >
+                {activeBars.map((item, index) => {
+                  const barHeight = Math.max((item.kwh / max) * chartHeight, 10);
+                  const isCurrentMonthlyBar = activeTab === "monthly" && item.isCurrent;
+
+                  return (
+                    <View
+                      key={item.key}
+                      style={{
+                        width: activeTab === "period14" ? 70 : 78,
+                        alignItems: "center",
+                        justifyContent: "flex-end",
+                        gap: 8,
+                      }}
+                    >
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          fontWeight: "700",
+                          color: isCurrentMonthlyBar ? "#1d4ed8" : "#111",
+                        }}
+                      >
+                        {item.kwh.toFixed(2)}
+                      </Text>
+
+                      <View
+                        style={{
+                          width: activeTab === "period14" ? 26 : 44,
+                          height: barHeight,
+                          borderRadius: 8,
+                          backgroundColor: isCurrentMonthlyBar ? "#2563eb" : "#111",
+                        }}
+                      />
+
+                      <Text
+                        style={{
+                          fontSize: 11,
+                          color: isCurrentMonthlyBar ? "#1d4ed8" : "#666",
+                          textAlign: "center",
+                          fontWeight: isCurrentMonthlyBar ? "800" : "400",
+                        }}
+                      >
+                        {activeTab === "period14" && index % 2 !== 0 ? "" : item.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          )}
+        </>
       )}
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        {activeTab === "daily"
-          ? `Daily tab shows a rolling ${days}-day window (${result.visibleLabel}).`
+        {activeTab === "period14"
+          ? `This tab shows the selected month-anchored period starting from day 1 of ${result.selectedMonthLabel}.`
           : activeTab === "compare14"
-          ? "Compare tab shows total Previous 14d vs Current 14d. Use Older Pair / Newer Pair to browse succeeding 14-day pairs."
+          ? "This tab compares the selected period against the previous period in the same month."
           : "Monthly totals still include the full current month."}
       </Text>
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Highest bar in this window: {(activeTab === "compare14" ? compareTotalMax : max).toFixed(2)} kWh
+        Highest bar in this window:{" "}
+        {(activeTab === "compare14" ? compareTotalMax : max).toFixed(2)} kWh
       </Text>
     </View>
   );
