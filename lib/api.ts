@@ -17,14 +17,18 @@ async function readErrorMessage(res: Response) {
 export async function getRealtime(params: { device: string; field: string; limit?: string }) {
   const qs = new URLSearchParams(params as any).toString();
   const res = await fetch(`${API_BASE}/public/realtime?${qs}`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<Array<{ time: string; value: number }>>;
 }
 
 export async function getNotes(params: { device: string; metric: string; limit?: string }) {
   const qs = new URLSearchParams(params as any).toString();
   const res = await fetch(`${API_BASE}/public/notes?${qs}`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<
     Array<{
       id: number;
@@ -215,7 +219,9 @@ export type MonthlyBillingRow = {
 
 export async function getReportRecipients() {
   const res = await fetch(`${API_BASE}/reports/settings/recipients`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<ReportRecipient[]>;
 }
 
@@ -243,7 +249,9 @@ export async function deleteReportRecipient(recipientId: number) {
 
 export async function getReportSchedule() {
   const res = await fetch(`${API_BASE}/reports/settings/schedule`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
+
   return res.json() as Promise<ReportSchedule>;
 }
 
@@ -267,6 +275,7 @@ export async function updateReportSchedule(body: {
 
 export async function getGempReportConfig() {
   const res = await fetch(`${API_BASE}/reports/gemp/config`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
 
   return res.json() as Promise<{
@@ -319,6 +328,7 @@ export async function getMonthlyBillingRates(
   }).toString();
 
   const res = await fetch(`${API_BASE}/billing/monthly-rates?${qs}`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
 
   return res.json() as Promise<MonthlyBillingRate[]>;
@@ -364,6 +374,7 @@ export async function getMonthlyBillingSummary(params: {
   }).toString();
 
   const res = await fetch(`${API_BASE}/billing/monthly-summary?${qs}`);
+
   if (!res.ok) throw new Error(await readErrorMessage(res));
 
   return res.json() as Promise<MonthlyBillingRow[]>;
