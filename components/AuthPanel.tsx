@@ -5,6 +5,7 @@ export function AuthPanel({
   token,
   busy,
   status,
+  title = "Login / Signup",
   onLogin,
   onSignup,
   onLogout,
@@ -12,6 +13,7 @@ export function AuthPanel({
   token: string | null;
   busy: "login" | "signup" | "logout" | null;
   status: string;
+  title?: string;
   onLogin: (email: string, password: string) => Promise<void>;
   onSignup: (email: string, password: string) => Promise<void>;
   onLogout: () => Promise<void>;
@@ -47,15 +49,17 @@ export function AuthPanel({
 
   return (
     <View style={{ padding: 12, borderWidth: 1, borderColor: "#eee", borderRadius: 12, gap: 8 }}>
-      <Text style={{ fontWeight: "700" }}>Login / Signup (to add notes)</Text>
+      <Text style={{ fontWeight: "700" }}>{title}</Text>
 
       <TextInput
         value={email}
         onChangeText={setEmail}
         placeholder="email"
         autoCapitalize="none"
+        keyboardType="email-address"
         style={{ borderWidth: 1, borderColor: "#ddd", borderRadius: 10, padding: 10, backgroundColor: "#fff" }}
       />
+
       <TextInput
         value={password}
         onChangeText={setPassword}
@@ -100,8 +104,11 @@ export function AuthPanel({
         </Pressable>
       </View>
 
-      {/* Status line (always visible) */}
-      {!!status && <Text style={{ color: status.startsWith("❌") ? "red" : "#555" }}>{status}</Text>}
+      {!!status && (
+        <Text style={{ color: status.startsWith("❌") ? "red" : "#555" }}>
+          {status}
+        </Text>
+      )}
     </View>
   );
 }
