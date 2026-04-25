@@ -1,5 +1,7 @@
 import React from "react";
 import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from "react-native";
+import { AuthPanel } from "../../components/AuthPanel";
+import { useAuth } from "../../hooks/useAuth";
 import { useGempReport } from "../../hooks/useGempReport";
 
 function Input({
@@ -60,6 +62,37 @@ async function confirmAction(title: string, message: string) {
 }
 
 export default function GempInputScreen() {
+  const auth = useAuth();
+
+  if (!auth.token) {
+    return (
+      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
+        <Text style={{ fontSize: 20, fontWeight: "800" }}>Login Required</Text>
+
+        <Text style={{ color: "#555", lineHeight: 20 }}>
+          You must log in first before you can access the GEMP Input tab.
+        </Text>
+
+        <AuthPanel
+          token={auth.token}
+          busy={auth.busy}
+          status={auth.status}
+          onLogin={async (email, password) => {
+            await auth.doLogin(email, password);
+          }}
+          onSignup={async (email, password) => {
+            await auth.doSignup(email, password);
+          }}
+          onLogout={auth.logout}
+        />
+      </ScrollView>
+    );
+  }
+
+  return <GempInputForm />;
+}
+
+function GempInputForm() {
   const {
     form,
     dynamic,
@@ -154,6 +187,7 @@ export default function GempInputScreen() {
                 "Apply Information",
                 "This will apply the current default information to all months and replace existing monthly values."
               );
+
               if (ok) {
                 applyDefaultsToAllMonths(true);
               }
@@ -176,6 +210,7 @@ export default function GempInputScreen() {
                 "Reset Manual Inputs",
                 "This clears the manual GEMP form values. The current month kWh in the report remains dynamic."
               );
+
               if (ok) {
                 reset();
               }
@@ -189,7 +224,9 @@ export default function GempInputScreen() {
               justifyContent: "center",
             }}
           >
-            <Text style={{ fontWeight: "700", color: "#b91c1c" }}>Reset Manual Inputs</Text>
+            <Text style={{ fontWeight: "700", color: "#b91c1c" }}>
+              Reset Manual Inputs
+            </Text>
           </Pressable>
         </View>
       </View>
