@@ -26,20 +26,26 @@ async function storageRemove(key: string) {
 
 export function useAuth() {
   const [token, setToken] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState<"login" | "signup" | "logout" | null>(null);
   const [status, setStatus] = useState<string>("");
 
   useEffect(() => {
     (async () => {
-      const t = await storageGet(KEY);
-      setToken(t);
-      if (t) setStatus("✅ Session restored.");
+      try {
+        const t = await storageGet(KEY);
+        setToken(t);
+        if (t) setStatus("✅ Session restored.");
+      } finally {
+        setReady(true);
+      }
     })();
   }, []);
 
   const doLogin = useCallback(async (email: string, password: string) => {
     setBusy("login");
     setStatus("Logging in...");
+
     try {
       const r = await login(email, password);
       await storageSet(KEY, r.token);
@@ -58,11 +64,12 @@ export function useAuth() {
   const doSignup = useCallback(async (email: string, password: string) => {
     setBusy("signup");
     setStatus("Signing up...");
+
     try {
       const r = await signup(email, password);
       await storageSet(KEY, r.token);
       setToken(r.token);
-      setStatus("✅ Signup successful (logged in).");
+      setStatus("✅ Signup successful.");
       return r.token;
     } catch (e: any) {
       const msg = String(e?.message ?? e);
@@ -76,6 +83,7 @@ export function useAuth() {
   const logout = useCallback(async () => {
     setBusy("logout");
     setStatus("Logging out...");
+
     try {
       await storageRemove(KEY);
       setToken(null);
@@ -85,5 +93,13 @@ export function useAuth() {
     }
   }, []);
 
-  return { token, busy, status, doLogin, doSignup, logout };
+  return {
+    token,
+    ready,
+    busy,
+    status,
+    doLogin,
+    doSignup,
+    logout,
+  };
 }
