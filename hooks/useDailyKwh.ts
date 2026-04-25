@@ -7,15 +7,6 @@ export type DailyKwhBarPoint = {
   kwh: number;
 };
 
-export type Compare14DayPoint = {
-  slotKey: string;
-  label: string;
-  currentKwh: number;
-  previousKwh: number;
-  currentFullLabel: string;
-  previousFullLabel: string;
-};
-
 export type MonthlyKwhBarPoint = {
   monthKey: string;
   label: string;
@@ -42,6 +33,21 @@ export type Compare14Summary = {
   previousPeakKwh: number;
 };
 
+export type MonthOption = {
+  monthKey: string;
+  label: string;
+};
+
+export type PeriodOption = {
+  periodIndex: number;
+  label: string;
+  startMs: number;
+  endMs: number;
+  startDay: number;
+  endDay: number;
+  daysCount: number;
+};
+
 type HistoryPoint = {
   time: string;
   rms_voltage: number | null;
@@ -49,6 +55,13 @@ type HistoryPoint = {
   power: number | null;
   power_factor: number | null;
   note?: string | null;
+};
+
+type MonthMeta = {
+  monthKey: string;
+  year: number;
+  monthIndex: number;
+  latestDay: number;
 };
 
 const API_HISTORY_LIMIT = 5000;
@@ -90,14 +103,6 @@ function dayLabel(ms: number) {
   return new Date(ms).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
-  });
-}
-
-function fullDayLabel(ms: number) {
-  return new Date(ms).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
   });
 }
 
@@ -200,11 +205,7 @@ function buildDailyWindowData(
 ): DailyKwhBarPoint[] {
   const buckets = new Map<string, number>();
 
-  for (
-    let cursor = startOfDayMs(startMs);
-    cursor <= endMs;
-    cursor += DAY_MS
-  ) {
+  for (let cursor = startOfDayMs(startMs); cursor <= endMs; cursor += DAY_MS) {
     buckets.set(localDayKey(cursor), 0);
   }
 
@@ -265,10 +266,76 @@ function buildRangeLabelFromMs(startMs: number, endMs: number) {
   return `${startText}-${endText}`;
 }
 
+function buildMonthMetaList(
+  sorted: Array<{ timeMs: number; power: number }>,
+  months: number
+): MonthMeta[] {
+  const metaMap = new Map<string, MonthMeta>();
+
+  for (const point of sorted) {
+    const d = new Date(point.timeMs);
+    const monthKey = localMonthKey(point.timeMs);
+    const latestDay = d.getDate();
+
+    const existing = metaMap.get(monthKey);
+    if (!existing) {
+      metaMap.set(monthKey, {
+        monthKey,
+        year: d.getFullYear(),
+        monthIndex: d.getMonth(),
+        latestDay,
+      });
+    } else {
+      existing.latestDay = Math.max(existing.latestDay, latestDay);
+    }
+  }
+
+  return Array.from(metaMap.values())
+    .sort((a, b) => (a.monthKey < b.monthKey ? 1 : -1))
+    .slice(0, months);
+}
+
+function buildPeriodsForMonth(meta: MonthMeta, days: number): PeriodOption[] {
+  const list: PeriodOption[] = [];
+  const monthShort = new Date(meta.year, meta.monthIndex, 1).toLocaleDateString(undefined, {
+    month: "short",
+  });
+
+  let periodIndex = 0;
+  for (let startDay = 1; startDay <= meta.latestDay; startDay += days) {
+    const endDay = Math.min(startDay + days - 1, meta.latestDay);
+    const startMs = new Date(meta.year, meta.monthIndex, startDay, 0, 0, 0, 0).getTime();
+    const endMs = new Date(
+      meta.year,
+      meta.monthIndex,
+      endDay,
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+
+    list.push({
+      periodIndex,
+      label: `${monthShort} ${startDay}-${endDay}`,
+      startMs,
+      endMs,
+      startDay,
+      endDay,
+      daysCount: endDay - startDay + 1,
+    });
+
+    periodIndex += 1;
+  }
+
+  return list;
+}
+
 export function useDailyKwh(
   days = 14,
   months = 12,
-  compareOffsetBlocks = 0,
+  selectedMonthKey?: string,
+  selectedPeriodIndex = -1,
   device = DEFAULT_DEVICE
 ) {
   const [points, setPoints] = useState<HistoryPoint[]>([]);
@@ -311,7 +378,7 @@ export function useDailyKwh(
 
   useEffect(() => {
     refresh();
-  }, [days, months, compareOffsetBlocks, device]);
+  }, [days, months, device]);
 
   const sorted = useMemo(() => {
     return points
@@ -324,93 +391,69 @@ export function useDailyKwh(
       .sort((a, b) => a.timeMs - b.timeMs);
   }, [points]);
 
-  const batchInfo = useMemo(() => {
-    const now = new Date();
-    const endMs = endOfDayMs(now.getTime());
-    const startDate = new Date(endMs);
-    startDate.setDate(startDate.getDate() - (days - 1));
-    startDate.setHours(0, 0, 0, 0);
-    const startMs = startDate.getTime();
+  const monthMetaList = useMemo(() => buildMonthMetaList(sorted, months), [sorted, months]);
 
-    return {
-      startMs,
-      endMs,
-      batchLabel: `Last ${days} days`,
-      visibleLabel: buildRangeLabelFromMs(startMs, endMs),
-      todayDay: now.getDate(),
-      daysInMonth: new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
-    };
-  }, [days, sorted.length]);
+  const availableMonths = useMemo<MonthOption[]>(() => {
+    return monthMetaList.map((meta) => ({
+      monthKey: meta.monthKey,
+      label: monthLabel(new Date(meta.year, meta.monthIndex, 1).getTime()),
+    }));
+  }, [monthMetaList]);
+
+  const resolvedMonthKey =
+    selectedMonthKey && availableMonths.some((m) => m.monthKey === selectedMonthKey)
+      ? selectedMonthKey
+      : availableMonths[0]?.monthKey ?? "";
+
+  const selectedMonthMeta = useMemo(
+    () => monthMetaList.find((m) => m.monthKey === resolvedMonthKey) ?? null,
+    [monthMetaList, resolvedMonthKey]
+  );
+
+  const availablePeriods = useMemo<PeriodOption[]>(() => {
+    if (!selectedMonthMeta) return [];
+    return buildPeriodsForMonth(selectedMonthMeta, days);
+  }, [selectedMonthMeta, days]);
+
+  const resolvedPeriodIndex =
+    availablePeriods.length === 0
+      ? 0
+      : selectedPeriodIndex >= 0 && selectedPeriodIndex < availablePeriods.length
+      ? selectedPeriodIndex
+      : availablePeriods.length - 1;
+
+  const selectedPeriod = availablePeriods[resolvedPeriodIndex] ?? null;
+  const previousPeriod =
+    resolvedPeriodIndex > 0 ? availablePeriods[resolvedPeriodIndex - 1] : null;
 
   const dailyData = useMemo<DailyKwhBarPoint[]>(() => {
-    return buildDailyWindowData(sorted, batchInfo.startMs, batchInfo.endMs);
-  }, [sorted, batchInfo]);
+    if (!selectedPeriod) return [];
+    return buildDailyWindowData(sorted, selectedPeriod.startMs, selectedPeriod.endMs);
+  }, [sorted, selectedPeriod]);
 
-  const compareInfo = useMemo(() => {
-    const anchorEndBase = endOfDayMs(Date.now());
-    const shiftedEnd = anchorEndBase - compareOffsetBlocks * days * DAY_MS;
+  const previousPeriodData = useMemo<DailyKwhBarPoint[]>(() => {
+    if (!previousPeriod) return [];
+    return buildDailyWindowData(sorted, previousPeriod.startMs, previousPeriod.endMs);
+  }, [sorted, previousPeriod]);
 
-    const currentEndMs = endOfDayMs(shiftedEnd);
-    const currentStartMs = startOfDayMs(currentEndMs - (days - 1) * DAY_MS);
+  const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
 
-    const previousEndMs = endOfDayMs(currentStartMs - 1);
-    const previousStartMs = startOfDayMs(previousEndMs - (days - 1) * DAY_MS);
-
-    const earliestMs = sorted[0]?.timeMs ?? null;
-
-    return {
-      currentStartMs,
-      currentEndMs,
-      previousStartMs,
-      previousEndMs,
-      currentLabel: buildRangeLabelFromMs(currentStartMs, currentEndMs),
-      previousLabel: buildRangeLabelFromMs(previousStartMs, previousEndMs),
-      canGoNewer: compareOffsetBlocks > 0,
-      canGoOlder: earliestMs !== null ? earliestMs <= previousStartMs : false,
-    };
-  }, [sorted, days, compareOffsetBlocks]);
-
-  const compareCurrentWindow = useMemo<DailyKwhBarPoint[]>(() => {
-    return buildDailyWindowData(
-      sorted,
-      compareInfo.currentStartMs,
-      compareInfo.currentEndMs
-    );
-  }, [sorted, compareInfo]);
-
-  const comparePreviousWindow = useMemo<DailyKwhBarPoint[]>(() => {
-    return buildDailyWindowData(
-      sorted,
-      compareInfo.previousStartMs,
-      compareInfo.previousEndMs
-    );
-  }, [sorted, compareInfo]);
-
-  const compare14Data = useMemo<Compare14DayPoint[]>(() => {
-    const maxLen = Math.max(compareCurrentWindow.length, comparePreviousWindow.length);
-
-    return Array.from({ length: maxLen }).map((_, index) => {
-      const currentItem = compareCurrentWindow[index];
-      const previousItem = comparePreviousWindow[index];
-
+  const compare14Summary = useMemo<Compare14Summary>(() => {
+    if (!selectedPeriod || !previousPeriod) {
       return {
-        slotKey: `slot-${index}`,
-        label: currentItem?.label ?? previousItem?.label ?? `Day ${index + 1}`,
-        currentKwh: Number((currentItem?.kwh ?? 0).toFixed(2)),
-        previousKwh: Number((previousItem?.kwh ?? 0).toFixed(2)),
-        currentFullLabel: currentItem
-          ? fullDayLabel(new Date(`${currentItem.dayKey}T00:00:00`).getTime())
-          : "—",
-        previousFullLabel: previousItem
-          ? fullDayLabel(new Date(`${previousItem.dayKey}T00:00:00`).getTime())
-          : "—",
+        currentTotal: dailySummary.total,
+        previousTotal: 0,
+        deltaKwh: dailySummary.total,
+        deltaPercent: null,
+        currentPeakLabel: dailySummary.peakLabel,
+        currentPeakKwh: dailySummary.peakKwh,
+        previousPeakLabel: "—",
+        previousPeakKwh: 0,
       };
-    });
-  }, [compareCurrentWindow, comparePreviousWindow]);
+    }
 
-  const compare14Summary = useMemo(() => {
-    return buildCompare14Summary(compareCurrentWindow, comparePreviousWindow);
-  }, [compareCurrentWindow, comparePreviousWindow]);
+    return buildCompare14Summary(dailyData, previousPeriodData);
+  }, [selectedPeriod, previousPeriod, dailyData, previousPeriodData, dailySummary]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
     const now = Date.now();
@@ -474,7 +517,6 @@ export function useDailyKwh(
     });
   }, [sorted, months]);
 
-  const dailySummary = useMemo(() => buildSummary(dailyData), [dailyData]);
   const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
 
   return {
@@ -488,20 +530,30 @@ export function useDailyKwh(
       peakKwh: dailySummary.peakKwh,
     },
 
+    availableMonths,
+    selectedMonthKey: resolvedMonthKey,
+    selectedMonthLabel:
+      availableMonths.find((m) => m.monthKey === resolvedMonthKey)?.label ?? "—",
+
+    availablePeriods,
+    selectedPeriodIndex: resolvedPeriodIndex,
+    selectedPeriodLabel: selectedPeriod?.label ?? "—",
+    selectedPeriodDayCount: selectedPeriod?.daysCount ?? 0,
+
+    compareHasPrevious: Boolean(previousPeriod),
+    compareCurrentLabel: selectedPeriod?.label ?? "—",
+    comparePreviousLabel: previousPeriod?.label ?? "—",
+
     dailyData,
-    compare14Data,
+    previousPeriodData,
     compare14Summary,
-    compareCurrentLabel: compareInfo.currentLabel,
-    comparePreviousLabel: compareInfo.previousLabel,
-    compareCanGoOlder: compareInfo.canGoOlder,
-    compareCanGoNewer: compareInfo.canGoNewer,
     monthlyData,
     dailySummary,
     monthlySummary,
-    batchLabel: batchInfo.batchLabel,
-    visibleLabel: batchInfo.visibleLabel,
-    todayDay: batchInfo.todayDay,
-    daysInMonth: batchInfo.daysInMonth,
+
+    batchLabel: selectedPeriod?.label ?? "—",
+    visibleLabel:
+      selectedPeriod ? buildRangeLabelFromMs(selectedPeriod.startMs, selectedPeriod.endMs) : "—",
 
     refresh,
     loading,
