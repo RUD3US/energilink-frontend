@@ -8,6 +8,16 @@ export type NoteCard = {
   valueAtNote: number | null;
 };
 
+function formatNoteTime(time: string) {
+  const d = new Date(time);
+
+  if (Number.isNaN(d.getTime())) {
+    return time;
+  }
+
+  return d.toLocaleString();
+}
+
 export function NotesBelowGraph({
   notes,
   selectedNoteId,
@@ -30,18 +40,33 @@ export function NotesBelowGraph({
   onDelete?: (id: number) => void;
 }) {
   return (
-    <View style={{ marginTop: 10, padding: 12, borderWidth: 1, borderColor: "#eee", borderRadius: 12 }}>
-      <Text style={{ fontSize: 16, fontWeight: "700" }}>Notes (below graph)</Text>
+    <View
+      style={{
+        marginTop: 10,
+        padding: 12,
+        borderWidth: 1,
+        borderColor: "#eee",
+        borderRadius: 12,
+        backgroundColor: "#fff",
+      }}
+    >
+      <Text style={{ fontSize: 16, fontWeight: "700" }}>
+        Notes (below graph)
+      </Text>
+
       <Text style={{ color: "#777", marginTop: 6 }}>
         Click a note line on the graph or a note item below to select.
       </Text>
 
       {notes.length === 0 ? (
-        <Text style={{ color: "#777", marginTop: 10 }}>No notes in this chart window.</Text>
+        <Text style={{ color: "#777", marginTop: 10 }}>
+          No notes in this chart window.
+        </Text>
       ) : (
         <View style={{ marginTop: 10, gap: 8 }}>
           {notes.map((n) => {
             const selected = n.id === selectedNoteId;
+
             return (
               <View
                 key={n.id}
@@ -55,8 +80,12 @@ export function NotesBelowGraph({
                 }}
               >
                 <Pressable onPress={() => onSelectNoteId(n.id)}>
-                  <Text style={{ fontWeight: "700" }}>{new Date(n.time).toLocaleString()}</Text>
+                  <Text style={{ fontWeight: "700" }}>
+                    {formatNoteTime(n.time)}
+                  </Text>
+
                   <Text style={{ marginTop: 4 }}>{n.text}</Text>
+
                   <Text style={{ marginTop: 6, color: "#555" }}>
                     {valueLabel}:{" "}
                     {typeof n.valueAtNote === "number"
@@ -78,7 +107,9 @@ export function NotesBelowGraph({
                       backgroundColor: "#fff",
                     }}
                   >
-                    <Text style={{ color: "#dc2626", fontWeight: "700" }}>Delete</Text>
+                    <Text style={{ color: "#dc2626", fontWeight: "700" }}>
+                      Delete
+                    </Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -89,7 +120,13 @@ export function NotesBelowGraph({
 
       <Pressable
         onPress={onClear}
-        style={{ marginTop: 10, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: "#ddd" }}
+        style={{
+          marginTop: 10,
+          padding: 10,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: "#ddd",
+        }}
       >
         <Text>Clear selection</Text>
       </Pressable>
