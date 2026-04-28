@@ -204,10 +204,7 @@ export default function TabOneScreen() {
   const { width } = useWindowDimensions();
 
   const showChartsSideBySide = width >= 760;
-  const showNotesSideBySide = width >= 760;
-
   const chartRowDirection = showChartsSideBySide ? "row" : "column";
-  const notesRowDirection = showNotesSideBySide ? "row" : "column";
 
   const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
   const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
@@ -226,11 +223,6 @@ export default function TabOneScreen() {
 
   const powerNotesQ = useNotes(DEFAULT_DEVICE, METRIC_POWER);
 
-  /**
-   * History-table notes normally use anchor_field = "power".
-   * Some older notes may have anchor_field missing/null.
-   * Treat missing anchor_field as archived/intervaled power notes.
-   */
   const intervaledPowerNotesRaw = useMemo(
     () =>
       powerNotesQ.notes
@@ -672,13 +664,13 @@ export default function TabOneScreen() {
 
       <View
         style={{
-          flexDirection: notesRowDirection,
+          flexDirection: "column",
           gap: CARD_GAP,
           alignItems: "stretch",
-          flexWrap: "nowrap",
+          width: "100%",
         }}
       >
-        <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={{ width: "100%" }}>
           <NotesBelowGraph
             notes={intervaledPowerNotesBelow}
             selectedNoteId={selectedIntervaledPowerNoteId}
@@ -692,19 +684,21 @@ export default function TabOneScreen() {
           />
         </View>
 
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <NotesBelowGraph
-            notes={realtimePowerNotesBelow}
-            selectedNoteId={selectedRealtimePowerNoteId}
-            onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
-            onClear={() => setSelectedRealtimePowerNoteId(null)}
-            valueLabel="Realtime power at note"
-            unit="W"
-            decimals={2}
-            canDelete={!!token}
-            onDelete={(id) => handleDeleteNote(id)}
-          />
-        </View>
+        {realtimePowerNotesBelow.length > 0 ? (
+          <View style={{ width: "100%" }}>
+            <NotesBelowGraph
+              notes={realtimePowerNotesBelow}
+              selectedNoteId={selectedRealtimePowerNoteId}
+              onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
+              onClear={() => setSelectedRealtimePowerNoteId(null)}
+              valueLabel="Realtime power at note"
+              unit="W"
+              decimals={2}
+              canDelete={!!token}
+              onDelete={(id) => handleDeleteNote(id)}
+            />
+          </View>
+        ) : null}
       </View>
 
       <View>
