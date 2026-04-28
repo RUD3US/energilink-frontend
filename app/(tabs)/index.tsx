@@ -70,6 +70,7 @@ type PowerNoteMode = "intervaled" | "realtime";
 
 const ARCHIVE_LIMIT = "500";
 const REALTIME_POWER_LIMIT = "2000";
+const NOTES_LIMIT = 1000;
 
 const PAGE_PADDING = 16;
 const CARD_GAP = 14;
@@ -82,11 +83,17 @@ function valueNearTime(points: Point[], iso: string, toleranceSec = 120): number
   if (!points.length) return null;
 
   const target = toMs(iso);
+  if (!Number.isFinite(target)) return null;
+
   let bestDt = Number.POSITIVE_INFINITY;
   let bestValue: number | null = null;
 
   for (const p of points) {
-    const dt = Math.abs(toMs(p.time) - target);
+    const pointMs = toMs(p.time);
+    if (!Number.isFinite(pointMs)) continue;
+
+    const dt = Math.abs(pointMs - target);
+
     if (dt < bestDt) {
       bestDt = dt;
       bestValue = p.value;
@@ -94,6 +101,7 @@ function valueNearTime(points: Point[], iso: string, toleranceSec = 120): number
   }
 
   if (bestValue === null || bestDt > toleranceSec * 1000) return null;
+
   return bestValue;
 }
 
@@ -136,8 +144,12 @@ function LatestValueBox({
         gap: 4,
       }}
     >
-      <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>{label}</Text>
-      <Text style={{ fontSize: 26, fontWeight: "800", color: "#111827" }}>{value}</Text>
+      <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+        {label}
+      </Text>
+      <Text style={{ fontSize: 26, fontWeight: "800", color: "#111827" }}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -214,10 +226,18 @@ export default function TabOneScreen() {
 
   const powerNotesQ = useNotes(DEFAULT_DEVICE, METRIC_POWER);
 
+  /**
+   * History-table notes normally use anchor_field = "power".
+   * Some older notes may have anchor_field missing/null.
+   * Treat missing anchor_field as archived/intervaled power notes.
+   */
   const intervaledPowerNotesRaw = useMemo(
     () =>
       powerNotesQ.notes
-        .filter((n: any) => n.anchor_field === FIELD_POWER)
+        .filter((n: any) => {
+          const field = n.anchor_field ?? FIELD_POWER;
+          return field === FIELD_POWER;
+        })
         .map((n: any) => ({
           ...n,
           time: n.anchor_time ?? n.time,
@@ -240,6 +260,7 @@ export default function TabOneScreen() {
     intervaledPowerPoints,
     intervaledPowerNotesRaw
   );
+
   const realtimePowerNotesInView = useNotesInWindow(
     realtimePowerPoints,
     realtimePowerNotesRaw
@@ -251,11 +272,15 @@ export default function TabOneScreen() {
   const [noteMode, setNoteMode] = useState<PowerNoteMode>("intervaled");
   const [manualTimestamp, setManualTimestamp] = useState("");
 
-  const [selectedIntervaledPowerNoteId, setSelectedIntervaledPowerNoteId] = useState<number | null>(null);
-  const [selectedRealtimePowerNoteId, setSelectedRealtimePowerNoteId] = useState<number | null>(null);
+  const [selectedIntervaledPowerNoteId, setSelectedIntervaledPowerNoteId] =
+    useState<number | null>(null);
+  const [selectedRealtimePowerNoteId, setSelectedRealtimePowerNoteId] =
+    useState<number | null>(null);
 
-  const [selectedIntervaledPowerPoint, setSelectedIntervaledPowerPoint] = useState<Point | null>(null);
-  const [selectedRealtimePowerPoint, setSelectedRealtimePowerPoint] = useState<Point | null>(null);
+  const [selectedIntervaledPowerPoint, setSelectedIntervaledPowerPoint] =
+    useState<Point | null>(null);
+  const [selectedRealtimePowerPoint, setSelectedRealtimePowerPoint] =
+    useState<Point | null>(null);
 
   const [latestHistory, setLatestHistory] = useState<HistoryRow | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -275,6 +300,7 @@ export default function TabOneScreen() {
       }).toString();
 
       const res = await fetch(`${API_BASE}/public/history?${qs}`);
+
       if (!res.ok) {
         throw new Error(`history request failed (${res.status})`);
       }
@@ -286,13 +312,31 @@ export default function TabOneScreen() {
     }
   }, []);
 
+  const refreshAll = useCallback(() => {
+    voltageRT.refresh(ARCHIVE_LIMIT);
+    currentRT.refresh(ARCHIVE_LIMIT);
+    powerRT.refresh(ARCHIVE_LIMIT);
+    pfRT.refresh(ARCHIVE_LIMIT);
+    realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
+    powerNotesQ.refresh(NOTES_LIMIT);
+    refreshLatestHistory();
+  }, [
+    voltageRT,
+    currentRT,
+    powerRT,
+    pfRT,
+    realtimePowerRT,
+    powerNotesQ,
+    refreshLatestHistory,
+  ]);
+
   useInterval(() => voltageRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
   useInterval(() => currentRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
   useInterval(() => powerRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
   useInterval(() => pfRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
 
   useInterval(() => realtimePowerRT.refresh(REALTIME_POWER_LIMIT), REALTIME_POWER_REFRESH_MS);
-  useInterval(() => powerNotesQ.refresh(200), NOTES_REFRESH_MS);
+  useInterval(() => powerNotesQ.refresh(NOTES_LIMIT), NOTES_REFRESH_MS);
   useInterval(() => refreshLatestHistory(), HISTORY_REFRESH_MS);
 
   useEffect(() => {
@@ -301,7 +345,7 @@ export default function TabOneScreen() {
     powerRT.refresh(ARCHIVE_LIMIT);
     pfRT.refresh(ARCHIVE_LIMIT);
     realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
-    powerNotesQ.refresh(200);
+    powerNotesQ.refresh(NOTES_LIMIT);
     refreshLatestHistory();
   }, [refreshLatestHistory]);
 
@@ -416,7 +460,7 @@ export default function TabOneScreen() {
       setManualTimestamp("");
       setSelectedIntervaledPowerPoint(null);
       setSelectedRealtimePowerPoint(null);
-      await powerNotesQ.refresh(200);
+      await powerNotesQ.refresh(NOTES_LIMIT);
     } catch (e: any) {
       Alert.alert("Add note failed", String(e?.message ?? e));
     }
@@ -430,7 +474,7 @@ export default function TabOneScreen() {
 
     try {
       await deleteNote(token, noteId);
-      await powerNotesQ.refresh(200);
+      await powerNotesQ.refresh(NOTES_LIMIT);
       setSelectedIntervaledPowerNoteId((prev) => (prev === noteId ? null : prev));
       setSelectedRealtimePowerNoteId((prev) => (prev === noteId ? null : prev));
     } catch (e: any) {
@@ -453,7 +497,6 @@ export default function TabOneScreen() {
         <Text style={{ fontSize: 22, fontWeight: "700" }}>
           EnergiLink Live Monitoring
         </Text>
-        
       </View>
 
       {voltageRT.error ? <Text style={{ color: "red" }}>voltage error: {voltageRT.error}</Text> : null}
@@ -463,18 +506,11 @@ export default function TabOneScreen() {
         <Text style={{ color: "red" }}>realtime power error: {realtimePowerRT.error}</Text>
       ) : null}
       {pfRT.error ? <Text style={{ color: "red" }}>power factor error: {pfRT.error}</Text> : null}
+      {powerNotesQ.error ? <Text style={{ color: "red" }}>notes error: {powerNotesQ.error}</Text> : null}
       {historyError ? <Text style={{ color: "red" }}>history error: {historyError}</Text> : null}
 
       <Pressable
-        onPress={() => {
-          voltageRT.refresh(ARCHIVE_LIMIT);
-          currentRT.refresh(ARCHIVE_LIMIT);
-          powerRT.refresh(ARCHIVE_LIMIT);
-          pfRT.refresh(ARCHIVE_LIMIT);
-          realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
-          powerNotesQ.refresh(200);
-          refreshLatestHistory();
-        }}
+        onPress={refreshAll}
         style={{
           padding: 10,
           borderRadius: 10,
@@ -565,6 +601,7 @@ export default function TabOneScreen() {
             <Text style={{ color: "#555" }}>
               Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
             </Text>
+
             <Text style={{ color: "#555" }}>
               notes total: {intervaledPowerNotesRaw.length} | notes in window: {intervaledPowerNotesInView.length}
             </Text>
@@ -603,6 +640,7 @@ export default function TabOneScreen() {
             <Text style={{ color: "#555" }}>
               Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
             </Text>
+
             <Text style={{ color: "#555" }}>
               notes total: {realtimePowerNotesRaw.length} | notes in window: {realtimePowerNotesInView.length}
             </Text>
@@ -727,7 +765,12 @@ export default function TabOneScreen() {
                 backgroundColor: noteMode === "intervaled" ? "#111" : "#fff",
               }}
             >
-              <Text style={{ color: noteMode === "intervaled" ? "#fff" : "#111", fontWeight: "600" }}>
+              <Text
+                style={{
+                  color: noteMode === "intervaled" ? "#fff" : "#111",
+                  fontWeight: "600",
+                }}
+              >
                 Intervaled Power
               </Text>
             </Pressable>
@@ -743,7 +786,12 @@ export default function TabOneScreen() {
                 backgroundColor: noteMode === "realtime" ? "#111" : "#fff",
               }}
             >
-              <Text style={{ color: noteMode === "realtime" ? "#fff" : "#111", fontWeight: "600" }}>
+              <Text
+                style={{
+                  color: noteMode === "realtime" ? "#fff" : "#111",
+                  fontWeight: "600",
+                }}
+              >
                 Realtime Power
               </Text>
             </Pressable>
