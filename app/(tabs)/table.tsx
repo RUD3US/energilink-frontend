@@ -24,7 +24,15 @@ type HistoryRow = {
   note?: string | null;
 };
 
-const HISTORY_FETCH_LIMIT = 5000;
+type HistoryMonth = {
+  month_key: string;
+  year: number;
+  month: number;
+  label: string;
+  rows: number;
+};
+
+const HISTORY_FETCH_LIMIT = 100000;
 
 function formatValue(
   value: number | null | undefined,
@@ -329,6 +337,41 @@ export default function TableScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string>("");
+  const [historyMonths, setHistoryMonths] = useState<HistoryMonth[]>([]);
+
+  const fetchAvailableMonths = useCallback(async () => {
+    const qs = new URLSearchParams({
+      device: DEFAULT_DEVICE,
+    }).toString();
+
+    const res = await fetch(`${API_BASE}/public/history/months?${qs}`);
+    const text = await res.text();
+
+    if (!res.ok) {
+      throw new Error(`Month list failed (${res.status}): ${text.slice(0, 160)}`);
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new Error(
+        `History months endpoint did not return JSON. Response starts with: ${text.slice(
+          0,
+          120
+        )}`
+      );
+    }
+
+    const nextMonths = Array.isArray(parsed) ? (parsed as HistoryMonth[]) : [];
+    setHistoryMonths(nextMonths);
+
+    if (!selectedMonth && nextMonths.length > 0) {
+      setSelectedMonth(nextMonths[0].month_key);
+    }
+
+    return nextMonths;
+  }, [selectedMonth]);
 
   const fetchHistory = useCallback(
     async (isRefresh = false) => {
@@ -341,12 +384,24 @@ export default function TableScreen() {
 
         setError(null);
 
+        if (!selectedMonth) {
+          setRows([]);
+          return;
+        }
+
+        const [year, month] = selectedMonth.split("-").map(Number);
+
         const qs = new URLSearchParams({
           device: DEFAULT_DEVICE,
           limit: String(HISTORY_FETCH_LIMIT),
-        }).toString();
+        });
 
-        const res = await fetch(`${API_BASE}/public/history?${qs}`);
+        if (year && month) {
+          qs.set("year", String(year));
+          qs.set("month", String(month));
+        }
+
+        const res = await fetch(`${API_BASE}/public/history?${qs.toString()}`);
         const text = await res.text();
 
         if (!res.ok) {
@@ -370,14 +425,6 @@ export default function TableScreen() {
 
         const nextRows = Array.isArray(parsed) ? (parsed as HistoryRow[]) : [];
         setRows(nextRows);
-
-        if (!selectedMonth && nextRows.length > 0) {
-          const firstMonth = monthKeyFromTime(nextRows[0].time);
-
-          if (firstMonth) {
-            setSelectedMonth(firstMonth);
-          }
-        }
       } catch (e: any) {
         setError(String(e?.message ?? e));
       } finally {
@@ -389,18 +436,23 @@ export default function TableScreen() {
   );
 
   useEffect(() => {
+    fetchAvailableMonths().catch((e: any) => {
+      setError(String(e?.message ?? e));
+      setLoading(false);
+    });
+  }, [fetchAvailableMonths]);
+
+  useEffect(() => {
     fetchHistory(false);
   }, [fetchHistory]);
 
   const availableMonths = useMemo(() => {
-    const keys = Array.from(
-      new Set(rows.map((row) => monthKeyFromTime(row.time)).filter(Boolean))
-    );
+    return historyMonths.map((item) => item.month_key);
+  }, [historyMonths]);
 
-    keys.sort((a, b) => (a < b ? 1 : -1));
-
-    return keys;
-  }, [rows]);
+  const selectedMonthRowCount = useMemo(() => {
+    return historyMonths.find((item) => item.month_key === selectedMonth)?.rows ?? 0;
+  }, [historyMonths, selectedMonth]);
 
   useEffect(() => {
     if (!selectedMonth && availableMonths.length > 0) {
@@ -547,7 +599,10 @@ export default function TableScreen() {
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
-          onRefresh={() => fetchHistory(true)}
+          onRefresh={async () => {
+            await fetchAvailableMonths();
+            await fetchHistory(true);
+          }}
         />
       }
     >
@@ -566,7 +621,7 @@ export default function TableScreen() {
         </Text>
 
         <Text style={{ color: "#555" }}>
-          This table shows voltage, current, power, power factor, and editable
+          This table shows archived monthly history from the database, including voltage, current, power, power factor, and editable
           notes per row.
         </Text>
 
@@ -620,6 +675,37 @@ export default function TableScreen() {
           </Pressable>
         </View>
 
+        {historyMonths.length ? (
+          <View style={{ gap: 8 }}>
+            <Text style={{ fontWeight: "700", color: "#374151" }}>Previous Data</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+              {historyMonths.map((item) => (
+                <Pressable
+                  key={item.month_key}
+                  onPress={() => setSelectedMonth(item.month_key)}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: selectedMonth === item.month_key ? "#111827" : "#d1d5db",
+                    backgroundColor: selectedMonth === item.month_key ? "#111827" : "#fff",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: selectedMonth === item.month_key ? "#fff" : "#111827",
+                      fontWeight: "700",
+                    }}
+                  >
+                    {item.label} ({item.rows})
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
           <View
             style={{
@@ -640,7 +726,7 @@ export default function TableScreen() {
             <Text
               style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
             >
-              {filteredRows.length}
+              {filteredRows.length || selectedMonthRowCount}
             </Text>
           </View>
 
@@ -739,7 +825,10 @@ export default function TableScreen() {
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
           <Pressable
-            onPress={() => fetchHistory(true)}
+            onPress={async () => {
+              await fetchAvailableMonths();
+              await fetchHistory(true);
+            }}
             style={{
               alignSelf: "flex-start",
               paddingVertical: 10,
