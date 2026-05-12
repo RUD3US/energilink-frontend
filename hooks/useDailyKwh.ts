@@ -64,7 +64,7 @@ type MonthMeta = {
   latestDay: number;
 };
 
-const API_HISTORY_LIMIT = 5000;
+const API_HISTORY_LIMIT = 50000;
 const MAX_GAP_HOURS = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -132,7 +132,13 @@ function toKwh(powerWatts: number, hours: number) {
   return (powerWatts / 1000) * hours;
 }
 
+function roundKwh(value: number, decimals = 3) {
+  return Number(value.toFixed(decimals));
+}
+
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
+  // One source of truth: these boxes are calculated only from the same
+  // daily/monthly bucket array that is rendered by the graph.
   const total = data.reduce((sum, d) => sum + d.kwh, 0);
   const avg = data.length ? total / data.length : 0;
   const current = data[data.length - 1]?.kwh ?? 0;
@@ -144,12 +150,12 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
   );
 
   return {
-    current: Number(current.toFixed(2)),
-    previous: Number(previous.toFixed(2)),
-    avg: Number(avg.toFixed(2)),
-    total: Number(total.toFixed(2)),
+    current: roundKwh(current),
+    previous: roundKwh(previous),
+    avg: roundKwh(avg),
+    total: roundKwh(total),
     peakLabel: peak?.label ?? "—",
-    peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
+    peakKwh: roundKwh(peak?.kwh ?? 0),
   };
 }
 
@@ -247,7 +253,9 @@ function buildDailyWindowData(
     return {
       dayKey: key,
       label: dayLabel(dayMs),
-      kwh: Number((buckets.get(key) || 0).toFixed(2)),
+      // Keep 3 decimals so the graph can represent injected/history-table
+      // values such as 12.428, 8.146, and 70.375 accurately.
+      kwh: roundKwh(buckets.get(key) || 0),
     };
   });
 }
@@ -512,7 +520,7 @@ export function useDailyKwh(
       return {
         monthKey: key,
         label: monthLabel(monthMs),
-        kwh: Number((buckets.get(key) || 0).toFixed(2)),
+        kwh: roundKwh(buckets.get(key) || 0),
       };
     });
   }, [sorted, months]);
