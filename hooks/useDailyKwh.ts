@@ -64,7 +64,7 @@ type MonthMeta = {
   latestDay: number;
 };
 
-const API_HISTORY_LIMIT = 50000;
+const API_HISTORY_LIMIT = 100000;
 const MAX_GAP_HOURS = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -132,13 +132,7 @@ function toKwh(powerWatts: number, hours: number) {
   return (powerWatts / 1000) * hours;
 }
 
-function roundKwh(value: number, decimals = 3) {
-  return Number(value.toFixed(decimals));
-}
-
 function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhSummary {
-  // One source of truth: these boxes are calculated only from the same
-  // daily/monthly bucket array that is rendered by the graph.
   const total = data.reduce((sum, d) => sum + d.kwh, 0);
   const avg = data.length ? total / data.length : 0;
   const current = data[data.length - 1]?.kwh ?? 0;
@@ -150,12 +144,12 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
   );
 
   return {
-    current: roundKwh(current),
-    previous: roundKwh(previous),
-    avg: roundKwh(avg),
-    total: roundKwh(total),
+    current: Number(current.toFixed(3)),
+    previous: Number(previous.toFixed(3)),
+    avg: Number(avg.toFixed(3)),
+    total: Number(total.toFixed(3)),
     peakLabel: peak?.label ?? "—",
-    peakKwh: roundKwh(peak?.kwh ?? 0),
+    peakKwh: Number((peak?.kwh ?? 0).toFixed(3)),
   };
 }
 
@@ -166,7 +160,7 @@ function buildCompare14Summary(
   const currentSummary = buildSummary(currentData);
   const previousSummary = buildSummary(previousData);
 
-  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(2));
+  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(3));
   const deltaPercent =
     previousSummary.total > 0
       ? Number(
@@ -197,8 +191,9 @@ function isValidHistoryPoint(p: HistoryPoint) {
   if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
   if (typeof p.power_factor !== "number" || !Number.isFinite(p.power_factor)) return false;
 
-  if (p.power < 0) return false;
-  if (p.rms_voltage === 0 && p.rms_current === 0) return false;
+  if (p.power <= 0) return false;
+  if (p.rms_voltage <= 0) return false;
+  if (p.rms_current <= 0) return false;
   if (p.power_factor <= 0.001 && p.power > 50) return false;
 
   return true;
@@ -253,9 +248,7 @@ function buildDailyWindowData(
     return {
       dayKey: key,
       label: dayLabel(dayMs),
-      // Keep 3 decimals so the graph can represent injected/history-table
-      // values such as 12.428, 8.146, and 70.375 accurately.
-      kwh: roundKwh(buckets.get(key) || 0),
+      kwh: Number((buckets.get(key) || 0).toFixed(3)),
     };
   });
 }
@@ -520,7 +513,7 @@ export function useDailyKwh(
       return {
         monthKey: key,
         label: monthLabel(monthMs),
-        kwh: roundKwh(buckets.get(key) || 0),
+        kwh: Number((buckets.get(key) || 0).toFixed(3)),
       };
     });
   }, [sorted, months]);
