@@ -88,7 +88,21 @@ function shortMonthLabel(value: string) {
   return trimmed.length > 3 ? trimmed.slice(0, 3) : trimmed;
 }
 
+function roundKwh(value: number, decimals = 3) {
+  return Number(value.toFixed(decimals));
+}
+
+function formatKwh(value: number, maxDecimals = 3) {
+  const n = Number.isFinite(value) ? value : 0;
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: maxDecimals,
+  });
+}
+
 function buildSummary(data: Array<{ label: string; kwh: number }>): KwhSummary {
+  // Monthly fallback uses the same calculation rule as the daily hook:
+  // summary boxes are derived from the same bars rendered below.
   const total = data.reduce((sum, item) => sum + item.kwh, 0);
   const avg = data.length ? total / data.length : 0;
   const current = data[data.length - 1]?.kwh ?? 0;
@@ -100,12 +114,12 @@ function buildSummary(data: Array<{ label: string; kwh: number }>): KwhSummary {
   );
 
   return {
-    current: Number(current.toFixed(2)),
-    previous: Number(previous.toFixed(2)),
-    avg: Number(avg.toFixed(2)),
-    total: Number(total.toFixed(2)),
+    current: roundKwh(current),
+    previous: roundKwh(previous),
+    avg: roundKwh(avg),
+    total: roundKwh(total),
     peakLabel: peak?.label ?? "—",
-    peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
+    peakKwh: roundKwh(peak?.kwh ?? 0),
   };
 }
 
@@ -289,7 +303,7 @@ export default function DailyKwhBarCard({
   const avgLabel = activeTab === "period14" ? "Average / day" : "Average / month";
   const totalLabel =
     activeTab === "period14"
-      ? `Total (${result.selectedPeriodDayCount}d)`
+      ? `Visible ${result.selectedPeriodDayCount}d kWh`
       : "Total period kWh";
   const peakLabelTitle = activeTab === "period14" ? "Peak day" : "Peak month";
 
@@ -477,31 +491,33 @@ export default function DailyKwhBarCard({
             <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
               <SummaryBox
                 label={`Current (${result.compareCurrentLabel})`}
-                value={compare14Summary.currentTotal.toFixed(2)}
+                value={formatKwh(compare14Summary.currentTotal, 3)}
               />
               <SummaryBox
                 label={`Previous (${result.comparePreviousLabel})`}
-                value={compare14Summary.previousTotal.toFixed(2)}
+                value={formatKwh(compare14Summary.previousTotal, 3)}
               />
-              <SummaryBox label="Delta kWh" value={compare14Summary.deltaKwh.toFixed(2)} />
+              <SummaryBox label="Delta kWh" value={formatKwh(compare14Summary.deltaKwh, 3)} />
               <SummaryBox
                 label="Delta %"
                 value={
                   compare14Summary.deltaPercent === null
                     ? "—"
-                    : `${compare14Summary.deltaPercent.toFixed(2)}%`
+                    : `${formatKwh(compare14Summary.deltaPercent, 2)}%`
                 }
               />
               <SummaryBox
                 label="Current peak day"
-                value={`${compare14Summary.currentPeakLabel} (${compare14Summary.currentPeakKwh.toFixed(
-                  2
+                value={`${compare14Summary.currentPeakLabel} (${formatKwh(
+                  compare14Summary.currentPeakKwh,
+                  3
                 )})`}
               />
               <SummaryBox
                 label="Previous peak day"
-                value={`${compare14Summary.previousPeakLabel} (${compare14Summary.previousPeakKwh.toFixed(
-                  2
+                value={`${compare14Summary.previousPeakLabel} (${formatKwh(
+                  compare14Summary.previousPeakKwh,
+                  3
                 )})`}
               />
             </View>
@@ -535,7 +551,7 @@ export default function DailyKwhBarCard({
                 >
                   <View style={{ alignItems: "center", gap: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
-                      {compare14Summary.previousTotal.toFixed(2)}
+                      {formatKwh(compare14Summary.previousTotal, 3)}
                     </Text>
                   </View>
 
@@ -591,7 +607,7 @@ export default function DailyKwhBarCard({
                 >
                   <View style={{ alignItems: "center", gap: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
-                      {compare14Summary.currentTotal.toFixed(2)}
+                      {formatKwh(compare14Summary.currentTotal, 3)}
                     </Text>
                   </View>
 
@@ -648,12 +664,12 @@ export default function DailyKwhBarCard({
       ) : (
         <>
           <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-            <SummaryBox label={currentLabel} value={activeSummary.current.toFixed(2)} />
-            <SummaryBox label={previousLabel} value={activeSummary.previous.toFixed(2)} />
-            <SummaryBox label={avgLabel} value={activeSummary.avg.toFixed(2)} />
-            <SummaryBox label={totalLabel} value={activeSummary.total.toFixed(2)} />
+            <SummaryBox label={currentLabel} value={formatKwh(activeSummary.current, 2)} />
+            <SummaryBox label={previousLabel} value={formatKwh(activeSummary.previous, 2)} />
+            <SummaryBox label={avgLabel} value={formatKwh(activeSummary.avg, 3)} />
+            <SummaryBox label={totalLabel} value={formatKwh(activeSummary.total, 3)} />
             <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
-            <SummaryBox label="Peak kWh" value={activeSummary.peakKwh.toFixed(2)} />
+            <SummaryBox label="Peak kWh" value={formatKwh(activeSummary.peakKwh, 3)} />
           </View>
 
           {!activeBars.length ? (
@@ -702,7 +718,7 @@ export default function DailyKwhBarCard({
                           color: isCurrentMonthlyBar ? "#1d4ed8" : "#111",
                         }}
                       >
-                        {item.kwh.toFixed(2)}
+                        {formatKwh(item.kwh, 3)}
                       </Text>
 
                       <View
@@ -743,7 +759,7 @@ export default function DailyKwhBarCard({
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         Highest bar in this window:{" "}
-        {(activeTab === "compare14" ? compareTotalMax : max).toFixed(2)} kWh
+        {formatKwh(activeTab === "compare14" ? compareTotalMax : max, 3)} kWh
       </Text>
     </View>
   );
