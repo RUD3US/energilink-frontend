@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useDailyKwh, type KwhSummary } from "../hooks/useDailyKwh";
-import { useGempReport } from "../hooks/useGempReport";
 
 type KwhTab = "period14" | "compare14" | "monthly";
 
@@ -88,21 +87,23 @@ function shortMonthLabel(value: string) {
   return trimmed.length > 3 ? trimmed.slice(0, 3) : trimmed;
 }
 
-function roundKwh(value: number, decimals = 3) {
-  return Number(value.toFixed(decimals));
+function currentMonthKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
 }
 
 function formatKwh(value: number, maxDecimals = 3) {
-  const n = Number.isFinite(value) ? value : 0;
-  return n.toLocaleString(undefined, {
+  if (!Number.isFinite(value)) return "0";
+
+  return value.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: maxDecimals,
   });
 }
 
 function buildSummary(data: Array<{ label: string; kwh: number }>): KwhSummary {
-  // Monthly fallback uses the same calculation rule as the daily hook:
-  // summary boxes are derived from the same bars rendered below.
   const total = data.reduce((sum, item) => sum + item.kwh, 0);
   const avg = data.length ? total / data.length : 0;
   const current = data[data.length - 1]?.kwh ?? 0;
@@ -114,12 +115,12 @@ function buildSummary(data: Array<{ label: string; kwh: number }>): KwhSummary {
   );
 
   return {
-    current: roundKwh(current),
-    previous: roundKwh(previous),
-    avg: roundKwh(avg),
-    total: roundKwh(total),
+    current: Number(current.toFixed(3)),
+    previous: Number(previous.toFixed(3)),
+    avg: Number(avg.toFixed(3)),
+    total: Number(total.toFixed(3)),
     peakLabel: peak?.label ?? "—",
-    peakKwh: roundKwh(peak?.kwh ?? 0),
+    peakKwh: Number((peak?.kwh ?? 0).toFixed(3)),
   };
 }
 
@@ -137,7 +138,6 @@ export default function DailyKwhBarCard({
   const scrollRef = useRef<ScrollView | null>(null);
 
   const result = useDailyKwh(days, months, selectedMonthKey, selectedPeriodIndex);
-  const gemp = useGempReport();
 
   const dailyData = Array.isArray(result.dailyData) ? result.dailyData : result.data ?? [];
 
@@ -167,57 +167,24 @@ export default function DailyKwhBarCard({
     }
   }, [selectedMonthKey, result.selectedMonthKey]);
 
-  const currentMonthLabel = String(gemp.dynamic?.current_month_label ?? "").trim();
-  const normalizedCurrentMonth = normalizeMonthLabel(currentMonthLabel);
-
   const monthlyBars = useMemo<ChartBar[]>(() => {
-    const rows = Array.isArray(gemp.report?.rows) ? gemp.report.rows : [];
+    const currentKey = currentMonthKey();
 
-    if (!rows.length) return [];
+    return (result.monthlyData ?? []).map((item) => ({
+      key: item.monthKey,
+      label: shortMonthLabel(item.label),
+      fullLabel: item.label,
+      kwh: Number(item.kwh.toFixed(3)),
+      isCurrent: item.monthKey === currentKey,
+    }));
+  }, [result.monthlyData]);
 
-    let usableRows = rows;
-
-    if (normalizedCurrentMonth) {
-      const currentMonthIndex = rows.findIndex(
-        (row) => normalizeMonthLabel(row?.month) === normalizedCurrentMonth
-      );
-
-      if (currentMonthIndex >= 0) {
-        usableRows = rows.slice(0, currentMonthIndex + 1);
-      }
-    } else {
-      const rowsWithValues = rows.filter((row) => {
-        const raw = row?.kwh;
-        return raw !== undefined && raw !== null && String(raw).trim() !== "";
-      });
-
-      if (rowsWithValues.length) {
-        usableRows = rowsWithValues;
-      }
-    }
-
-    return usableRows.map((row, index) => {
-      const fullLabel = String(row?.month ?? `Month ${index + 1}`);
-      const kwh = toNumber(row?.kwh);
-
-      return {
-        key: `${index}-${fullLabel}`,
-        label: shortMonthLabel(fullLabel),
-        fullLabel,
-        kwh: Number(kwh.toFixed(2)),
-        isCurrent: normalizeMonthLabel(fullLabel) === normalizedCurrentMonth,
-      };
-    });
-  }, [gemp.report?.rows, normalizedCurrentMonth]);
-
-  const monthlySummary = useMemo(() => {
-    return buildSummary(
-      monthlyBars.map((item) => ({
-        label: item.fullLabel,
-        kwh: item.kwh,
-      }))
-    );
-  }, [monthlyBars]);
+  const monthlySummary = result.monthlySummary ?? buildSummary(
+    monthlyBars.map((item) => ({
+      label: item.fullLabel,
+      kwh: item.kwh,
+    }))
+  );
 
   const activeBars = useMemo(() => {
     if (activeTab === "monthly") {
@@ -296,23 +263,22 @@ export default function DailyKwhBarCard({
       ? result.compareHasPrevious
         ? `Current: ${result.compareCurrentLabel} • Previous: ${result.comparePreviousLabel}`
         : `Choose a later period in ${result.selectedMonthLabel} to compare with the earlier one.`
-      : "Current month bar is synced with the GEMP dynamic table and OLED month kWh.";
+      : "Monthly totals are calculated from the same history table readings.";
 
   const currentLabel = activeTab === "period14" ? "Latest day kWh" : "Current month kWh";
   const previousLabel = activeTab === "period14" ? "Previous day kWh" : "Previous month kWh";
   const avgLabel = activeTab === "period14" ? "Average / day" : "Average / month";
   const totalLabel =
     activeTab === "period14"
-      ? `Visible ${result.selectedPeriodDayCount}d kWh`
+      ? `Total (${result.selectedPeriodDayCount}d)`
       : "Total period kWh";
   const peakLabelTitle = activeTab === "period14" ? "Peak day" : "Peak month";
 
-  const combinedLoading = result.loading || gemp.loading;
-  const combinedError = result.error || gemp.error;
+  const combinedLoading = result.loading;
+  const combinedError = result.error;
 
   function handleRefresh() {
     result.refresh();
-    gemp.refresh();
   }
 
   useEffect(() => {
@@ -491,34 +457,28 @@ export default function DailyKwhBarCard({
             <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
               <SummaryBox
                 label={`Current (${result.compareCurrentLabel})`}
-                value={formatKwh(compare14Summary.currentTotal, 3)}
+                value={formatKwh(compare14Summary.currentTotal)}
               />
               <SummaryBox
                 label={`Previous (${result.comparePreviousLabel})`}
-                value={formatKwh(compare14Summary.previousTotal, 3)}
+                value={formatKwh(compare14Summary.previousTotal)}
               />
-              <SummaryBox label="Delta kWh" value={formatKwh(compare14Summary.deltaKwh, 3)} />
+              <SummaryBox label="Delta kWh" value={formatKwh(compare14Summary.deltaKwh)} />
               <SummaryBox
                 label="Delta %"
                 value={
                   compare14Summary.deltaPercent === null
                     ? "—"
-                    : `${formatKwh(compare14Summary.deltaPercent, 2)}%`
+                    : `${compare14Summary.deltaPercent.toFixed(2)}%`
                 }
               />
               <SummaryBox
                 label="Current peak day"
-                value={`${compare14Summary.currentPeakLabel} (${formatKwh(
-                  compare14Summary.currentPeakKwh,
-                  3
-                )})`}
+                value={`${compare14Summary.currentPeakLabel} (${formatKwh(compare14Summary.currentPeakKwh)})`}
               />
               <SummaryBox
                 label="Previous peak day"
-                value={`${compare14Summary.previousPeakLabel} (${formatKwh(
-                  compare14Summary.previousPeakKwh,
-                  3
-                )})`}
+                value={`${compare14Summary.previousPeakLabel} (${formatKwh(compare14Summary.previousPeakKwh)})`}
               />
             </View>
 
@@ -551,7 +511,7 @@ export default function DailyKwhBarCard({
                 >
                   <View style={{ alignItems: "center", gap: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: "800", color: "#6b7280" }}>
-                      {formatKwh(compare14Summary.previousTotal, 3)}
+                      {formatKwh(compare14Summary.previousTotal)}
                     </Text>
                   </View>
 
@@ -607,7 +567,7 @@ export default function DailyKwhBarCard({
                 >
                   <View style={{ alignItems: "center", gap: 4 }}>
                     <Text style={{ fontSize: 13, fontWeight: "800", color: "#2563eb" }}>
-                      {formatKwh(compare14Summary.currentTotal, 3)}
+                      {formatKwh(compare14Summary.currentTotal)}
                     </Text>
                   </View>
 
@@ -664,12 +624,12 @@ export default function DailyKwhBarCard({
       ) : (
         <>
           <View style={{ flexDirection: "row", gap: 12, flexWrap: "wrap" }}>
-            <SummaryBox label={currentLabel} value={formatKwh(activeSummary.current, 2)} />
-            <SummaryBox label={previousLabel} value={formatKwh(activeSummary.previous, 2)} />
-            <SummaryBox label={avgLabel} value={formatKwh(activeSummary.avg, 3)} />
-            <SummaryBox label={totalLabel} value={formatKwh(activeSummary.total, 3)} />
+            <SummaryBox label={currentLabel} value={formatKwh(activeSummary.current)} />
+            <SummaryBox label={previousLabel} value={formatKwh(activeSummary.previous)} />
+            <SummaryBox label={avgLabel} value={formatKwh(activeSummary.avg)} />
+            <SummaryBox label={totalLabel} value={formatKwh(activeSummary.total)} />
             <SummaryBox label={peakLabelTitle} value={activeSummary.peakLabel} />
-            <SummaryBox label="Peak kWh" value={formatKwh(activeSummary.peakKwh, 3)} />
+            <SummaryBox label="Peak kWh" value={formatKwh(activeSummary.peakKwh)} />
           </View>
 
           {!activeBars.length ? (
@@ -718,7 +678,7 @@ export default function DailyKwhBarCard({
                           color: isCurrentMonthlyBar ? "#1d4ed8" : "#111",
                         }}
                       >
-                        {formatKwh(item.kwh, 3)}
+                        {formatKwh(item.kwh)}
                       </Text>
 
                       <View
@@ -759,7 +719,7 @@ export default function DailyKwhBarCard({
 
       <Text style={{ color: "#6b7280", fontSize: 12 }}>
         Highest bar in this window:{" "}
-        {formatKwh(activeTab === "compare14" ? compareTotalMax : max, 3)} kWh
+        {formatKwh(activeTab === "compare14" ? compareTotalMax : max)} kWh
       </Text>
     </View>
   );
