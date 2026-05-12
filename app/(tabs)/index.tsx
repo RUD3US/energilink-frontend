@@ -1,18 +1,61 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
-  RefreshControl,
   ScrollView,
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from "react-native";
-import { API_BASE, DEFAULT_DEVICE } from "../../config";
-import { saveHistoryNote } from "../../lib/api";
+
+import {
+  API_BASE,
+  DEFAULT_DEVICE,
+  FIELD_CURRENT,
+  FIELD_POWER,
+  FIELD_POWER_FACTOR,
+  FIELD_REALTIME_POWER,
+  FIELD_VOLTAGE,
+  METRIC_POWER,
+  ARCHIVE_INTERVAL_LABEL,
+  REALTIME_INTERVAL_LABEL,
+  ARCHIVE_REFRESH_MS,
+  REALTIME_POWER_REFRESH_MS,
+  NOTES_REFRESH_MS,
+  HISTORY_REFRESH_MS,
+} from "../../config";
+
 import { useAuth } from "../../hooks/useAuth";
+import { useInterval } from "../../hooks/useInterval";
+import { useNotes, useNotesInWindow } from "../../hooks/useNotes";
+import { useRealtime } from "../../hooks/useRealtime";
+import { createNote, deleteNote } from "../../lib/api";
+
 import { AuthPanel } from "../../components/AuthPanel";
+import DailyKwhBarCard from "../../components/DailyKwhBarCard";
+import MonthlyBillingCard from "../../components/MonthlyBillingCard";
+import MonitoringSummaryRow from "../../components/MonitoringSummaryRow";
+import { NotesBelowGraph } from "../../components/NotesBelowGraph";
+import { SimpleLineChart } from "../../components/SimpleLineChart";
+
+type Point = {
+  time: string;
+  value: number;
+};
+
+type ChartNote = {
+  id: number;
+  time: string;
+  text: string;
+};
+
+type NoteBelow = {
+  id: number;
+  time: string;
+  text: string;
+  valueAtNote: number | null;
+};
 
 type HistoryRow = {
   time: string;
@@ -20,977 +63,817 @@ type HistoryRow = {
   rms_current: number | null;
   power: number | null;
   power_factor: number | null;
-  note_id?: number | null;
   note?: string | null;
 };
 
-type HistoryMonth = {
-  month_key: string;
-  year: number;
-  month: number;
-  label: string;
-  rows: number;
-};
+type PowerNoteMode = "intervaled" | "realtime";
 
-const HISTORY_FETCH_LIMIT = 100000;
+const ARCHIVE_LIMIT = "500";
+const REALTIME_POWER_LIMIT = "2000";
+const NOTES_LIMIT = 1000;
 
-function formatValue(
-  value: number | null | undefined,
-  decimals: number,
-  unit?: string
-) {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return "—";
+const PAGE_PADDING = 16;
+const CARD_GAP = 14;
+
+function toMs(iso: string) {
+  return new Date(iso).getTime();
+}
+
+function valueNearTime(points: Point[], iso: string, toleranceSec = 120): number | null {
+  if (!points.length) return null;
+
+  const target = toMs(iso);
+  if (!Number.isFinite(target)) return null;
+
+  let bestDt = Number.POSITIVE_INFINITY;
+  let bestValue: number | null = null;
+
+  for (const p of points) {
+    const pointMs = toMs(p.time);
+    if (!Number.isFinite(pointMs)) continue;
+
+    const dt = Math.abs(pointMs - target);
+
+    if (dt < bestDt) {
+      bestDt = dt;
+      bestValue = p.value;
+    }
   }
 
+  if (bestValue === null || bestDt > toleranceSec * 1000) return null;
+
+  return bestValue;
+}
+
+function sanitizePoints(points: Point[]): Point[] {
+  return points.filter(
+    (p) =>
+      p &&
+      typeof p.time === "string" &&
+      typeof p.value === "number" &&
+      Number.isFinite(p.value)
+  );
+}
+
+function latestValue(points: Point[]): number | null {
+  const clean = sanitizePoints(points);
+  return clean.length ? clean[clean.length - 1].value : null;
+}
+
+function formatLatestValue(value: number | null, decimals: number, unit?: string) {
+  if (value === null) return "—";
   return `${value.toFixed(decimals)}${unit ? ` ${unit}` : ""}`;
 }
 
-function formatTime(value: string) {
-  const d = new Date(value);
-
-  if (Number.isNaN(d.getTime())) {
-    return value;
-  }
-
-  return d.toLocaleString();
-}
-
-function latestNonNull(
-  rows: HistoryRow[],
-  key: keyof Pick<
-    HistoryRow,
-    "rms_voltage" | "rms_current" | "power" | "power_factor"
-  >
-) {
-  for (const row of rows) {
-    const v = row[key];
-
-    if (typeof v === "number" && Number.isFinite(v)) {
-      return v;
-    }
-  }
-
-  return null;
-}
-
-function escapeCsvValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-
-  const stringValue = String(value);
-
-  if (
-    stringValue.includes(",") ||
-    stringValue.includes('"') ||
-    stringValue.includes("\n")
-  ) {
-    return `"${stringValue.replace(/"/g, '""')}"`;
-  }
-
-  return stringValue;
-}
-
-function monthKeyFromTime(value: string) {
-  const d = new Date(value);
-
-  if (Number.isNaN(d.getTime())) {
-    return "";
-  }
-
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-
-  return `${y}-${m}`;
-}
-
-function monthLabelFromKey(key: string) {
-  const [year, month] = key.split("-").map(Number);
-
-  if (!year || !month) {
-    return key;
-  }
-
-  const d = new Date(year, month - 1, 1);
-
-  return d.toLocaleDateString(undefined, {
-    month: "long",
-    year: "numeric",
-  });
-}
-
-function shiftMonthKey(key: string, offset: number) {
-  const [year, month] = key.split("-").map(Number);
-
-  if (!year || !month) {
-    return key;
-  }
-
-  const d = new Date(year, month - 1, 1);
-  d.setMonth(d.getMonth() + offset);
-
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-
-  return `${y}-${m}`;
-}
-
-function EditableNoteCell({
-  token,
-  row,
-  onSaved,
+function LatestValueBox({
+  label,
+  value,
 }: {
-  token: string;
-  row: HistoryRow;
-  onSaved: (time: string, note: string | null, noteId: number | null) => void;
+  label: string;
+  value: string;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(row.note ?? "");
-  const [saving, setSaving] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(row.note ?? "");
-  }, [row.note]);
-
-  async function handleSave() {
-    try {
-      setSaving(true);
-      setLocalError(null);
-
-      const result = await saveHistoryNote(token, {
-        device: DEFAULT_DEVICE,
-        time: row.time,
-        text: draft,
-        anchor_field: "power",
-      });
-
-      onSaved(row.time, result.note ?? null, result.note_id ?? null);
-      setDraft(result.note ?? "");
-      setEditing(false);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      setLocalError(msg);
-      Alert.alert("Save failed", msg);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete() {
-    try {
-      setSaving(true);
-      setLocalError(null);
-
-      const result = await saveHistoryNote(token, {
-        device: DEFAULT_DEVICE,
-        time: row.time,
-        text: "",
-        anchor_field: "power",
-      });
-
-      onSaved(row.time, result.note ?? null, result.note_id ?? null);
-      setDraft("");
-      setEditing(false);
-    } catch (e: any) {
-      const msg = String(e?.message ?? e);
-      setLocalError(msg);
-      Alert.alert("Delete failed", msg);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  if (editing) {
-    return (
-      <View style={{ width: 320, gap: 8 }}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          placeholder="Type note for this row"
-          multiline
-          style={{
-            minHeight: 44,
-            borderWidth: 1,
-            borderColor: "#d1d5db",
-            borderRadius: 10,
-            padding: 8,
-            backgroundColor: "#fff",
-            color: "#111827",
-          }}
-        />
-
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-          <Pressable
-            disabled={saving}
-            onPress={handleSave}
-            style={{
-              paddingVertical: 8,
-              paddingHorizontal: 10,
-              borderRadius: 8,
-              backgroundColor: "#111827",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>
-              {saving ? "Saving..." : "Save"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            disabled={saving}
-            onPress={() => {
-              setDraft(row.note ?? "");
-              setEditing(false);
-              setLocalError(null);
-            }}
-            style={{
-              paddingVertical: 8,
-              paddingHorizontal: 10,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            <Text style={{ fontWeight: "700" }}>Cancel</Text>
-          </Pressable>
-        </View>
-
-        {localError ? (
-          <Text style={{ color: "red", fontSize: 12 }}>
-            {localError}
-          </Text>
-        ) : null}
-      </View>
-    );
-  }
-
   return (
-    <View style={{ width: 320, gap: 6 }}>
-      <Text style={{ color: row.note?.trim() ? "#111827" : "#9ca3af" }}>
-        {row.note?.trim() ? row.note : "—"}
+    <View
+      style={{
+        paddingVertical: 12,
+        paddingHorizontal: 14,
+        borderWidth: 1,
+        borderColor: "#d1d5db",
+        borderRadius: 14,
+        backgroundColor: "#f8fafc",
+        gap: 4,
+      }}
+    >
+      <Text style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}>
+        {label}
       </Text>
-
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
-        <Pressable
-          disabled={saving}
-          onPress={() => {
-            setDraft(row.note ?? "");
-            setEditing(true);
-            setLocalError(null);
-          }}
-          style={{
-            alignSelf: "flex-start",
-            paddingVertical: 7,
-            paddingHorizontal: 10,
-            borderRadius: 8,
-            borderWidth: 1,
-            borderColor: "#d1d5db",
-            backgroundColor: "#fff",
-            opacity: saving ? 0.6 : 1,
-          }}
-        >
-          <Text style={{ fontWeight: "700" }}>
-            {row.note?.trim() ? "Edit" : "Add Note"}
-          </Text>
-        </Pressable>
-
-        {row.note?.trim() ? (
-          <Pressable
-            disabled={saving}
-            onPress={handleDelete}
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 7,
-              paddingHorizontal: 10,
-              borderRadius: 8,
-              borderWidth: 1,
-              borderColor: "#fecaca",
-              backgroundColor: "#fef2f2",
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            <Text style={{ color: "#b91c1c", fontWeight: "700" }}>
-              {saving ? "Deleting..." : "Delete"}
-            </Text>
-          </Pressable>
-        ) : null}
-      </View>
-
-      {localError ? (
-        <Text style={{ color: "red", fontSize: 12 }}>
-          {localError}
-        </Text>
-      ) : null}
+      <Text style={{ fontSize: 26, fontWeight: "800", color: "#111827" }}>
+        {value}
+      </Text>
     </View>
   );
 }
 
-export default function TableScreen() {
-  const auth = useAuth();
-  const token = auth.token;
-
-  const [rows, setRows] = useState<HistoryRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedMonth, setSelectedMonth] = useState<string>("");
-  const [historyMonths, setHistoryMonths] = useState<HistoryMonth[]>([]);
-
-  const fetchAvailableMonths = useCallback(async () => {
-    const qs = new URLSearchParams({
-      device: DEFAULT_DEVICE,
-    }).toString();
-
-    const res = await fetch(`${API_BASE}/public/history/months?${qs}`);
-    const text = await res.text();
-
-    if (!res.ok) {
-      throw new Error(`Month list failed (${res.status}): ${text.slice(0, 160)}`);
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      throw new Error(
-        `History months endpoint did not return JSON. Response starts with: ${text.slice(
-          0,
-          120
-        )}`
-      );
-    }
-
-    const nextMonths = Array.isArray(parsed) ? (parsed as HistoryMonth[]) : [];
-    setHistoryMonths(nextMonths);
-
-    if (!selectedMonth && nextMonths.length > 0) {
-      setSelectedMonth(nextMonths[0].month_key);
-    }
-
-    return nextMonths;
-  }, [selectedMonth]);
-
-  const fetchHistory = useCallback(
-    async (isRefresh = false) => {
-      try {
-        if (isRefresh) {
-          setRefreshing(true);
-        } else {
-          setLoading(true);
-        }
-
-        setError(null);
-
-        if (!selectedMonth) {
-          setRows([]);
-          return;
-        }
-
-        const [year, month] = selectedMonth.split("-").map(Number);
-
-        const qs = new URLSearchParams({
-          device: DEFAULT_DEVICE,
-          limit: String(HISTORY_FETCH_LIMIT),
-        });
-
-        if (year && month) {
-          qs.set("year", String(year));
-          qs.set("month", String(month));
-        }
-
-        const res = await fetch(`${API_BASE}/public/history?${qs.toString()}`);
-        const text = await res.text();
-
-        if (!res.ok) {
-          throw new Error(
-            `Request failed (${res.status}): ${text.slice(0, 160)}`
-          );
-        }
-
-        let parsed: unknown;
-
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          throw new Error(
-            `History endpoint did not return JSON. Response starts with: ${text.slice(
-              0,
-              120
-            )}`
-          );
-        }
-
-        const nextRows = Array.isArray(parsed) ? (parsed as HistoryRow[]) : [];
-        setRows(nextRows);
-      } catch (e: any) {
-        setError(String(e?.message ?? e));
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    },
-    [selectedMonth]
+function ChartCard({
+  title,
+  latestLabel,
+  latestValueText,
+  minHeight = 400,
+  children,
+}: {
+  title: string;
+  latestLabel: string;
+  latestValueText: string;
+  minHeight?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      style={{
+        gap: 12,
+        minHeight,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: "#e5e7eb",
+        borderRadius: 16,
+        backgroundColor: "#fff",
+      }}
+    >
+      <Text style={{ fontSize: 16, fontWeight: "700" }}>{title}</Text>
+      <LatestValueBox label={latestLabel} value={latestValueText} />
+      {children}
+    </View>
   );
+}
 
-  useEffect(() => {
-    fetchAvailableMonths().catch((e: any) => {
-      setError(String(e?.message ?? e));
-      setLoading(false);
-    });
-  }, [fetchAvailableMonths]);
+function normalizeTimestampInput(s: string): string | null {
+  const raw = s.trim();
+  if (!raw) return null;
 
-  useEffect(() => {
-    fetchHistory(false);
-  }, [fetchHistory]);
+  const normalized = raw.includes(" ") && !raw.includes("T") ? raw.replace(" ", "T") : raw;
+  const d = new Date(normalized);
 
-  const availableMonths = useMemo(() => {
-    return historyMonths.map((item) => item.month_key);
-  }, [historyMonths]);
-
-  const selectedMonthRowCount = useMemo(() => {
-    return historyMonths.find((item) => item.month_key === selectedMonth)?.rows ?? 0;
-  }, [historyMonths, selectedMonth]);
-
-  useEffect(() => {
-    if (!selectedMonth && availableMonths.length > 0) {
-      setSelectedMonth(availableMonths[0]);
-    }
-  }, [availableMonths, selectedMonth]);
-
-  const filteredRows = useMemo(() => {
-    if (!selectedMonth) {
-      return rows;
-    }
-
-    return rows.filter((row) => monthKeyFromTime(row.time) === selectedMonth);
-  }, [rows, selectedMonth]);
-
-  const exportToCSV = useCallback(() => {
-    if (!filteredRows.length) {
-      return;
-    }
-
-    if (typeof document === "undefined") {
-      setError("CSV export is only available on web.");
-      return;
-    }
-
-    const headers = [
-      "Time",
-      "Voltage (V)",
-      "Current (A)",
-      "Power (W)",
-      "Power Factor",
-      "Note",
-    ];
-
-    const csvRows = filteredRows.map((row) => [
-      formatTime(row.time),
-      row.rms_voltage ?? "",
-      row.rms_current ?? "",
-      row.power ?? "",
-      row.power_factor ?? "",
-      row.note ?? "",
-    ]);
-
-    const csvContent = [headers, ...csvRows]
-      .map((row) => row.map((cell) => escapeCsvValue(cell)).join(","))
-      .join("\n");
-
-    const blob = new Blob([csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const stamp = selectedMonth || new Date().toISOString().slice(0, 7);
-
-    link.href = url;
-    link.download = `history-${stamp}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  }, [filteredRows, selectedMonth]);
-
-  const handleNoteSaved = useCallback(
-    (time: string, note: string | null, noteId: number | null) => {
-      setRows((prev) =>
-        prev.map((row) =>
-          row.time === time
-            ? {
-                ...row,
-                note,
-                note_id: noteId,
-              }
-            : row
-        )
-      );
-    },
-    []
-  );
-
-  const latestVoltage = useMemo(
-    () => latestNonNull(filteredRows, "rms_voltage"),
-    [filteredRows]
-  );
-
-  const latestCurrent = useMemo(
-    () => latestNonNull(filteredRows, "rms_current"),
-    [filteredRows]
-  );
-
-  const latestPower = useMemo(
-    () => latestNonNull(filteredRows, "power"),
-    [filteredRows]
-  );
-
-  const latestPf = useMemo(
-    () => latestNonNull(filteredRows, "power_factor"),
-    [filteredRows]
-  );
-
-  const selectedMonthLabel = selectedMonth
-    ? monthLabelFromKey(selectedMonth)
-    : "Current Month";
-
-  const canGoPrev = selectedMonth
-    ? availableMonths.includes(shiftMonthKey(selectedMonth, -1))
-    : false;
-
-  const canGoNext = selectedMonth
-    ? availableMonths.includes(shiftMonthKey(selectedMonth, 1))
-    : false;
-
-  if (!token) {
-    return (
-      <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }}>
-        <Text style={{ fontSize: 20, fontWeight: "800" }}>
-          Login Required
-        </Text>
-
-        <Text style={{ color: "#555", lineHeight: 20 }}>
-          You must log in first before you can manually edit notes in the
-          History Table.
-        </Text>
-
-        <AuthPanel
-          token={auth.token}
-          busy={auth.busy}
-          status={auth.status}
-          onLogin={async (email, password) => {
-            await auth.doLogin(email, password);
-          }}
-          onSignup={async (email, password) => {
-            await auth.doSignup(email, password);
-          }}
-          onLogout={auth.logout}
-        />
-      </ScrollView>
-    );
+  if (Number.isNaN(d.getTime())) {
+    return null;
   }
 
-  return (
-    <ScrollView
-      contentContainerStyle={{ padding: 16, gap: 12 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => {
-            await fetchAvailableMonths();
-            await fetchHistory(true);
-          }}
-        />
+  return d.toISOString();
+}
+
+export default function TabOneScreen() {
+  const { width } = useWindowDimensions();
+
+  const showChartsSideBySide = width >= 760;
+  const chartRowDirection = showChartsSideBySide ? "row" : "column";
+
+  const voltageRT = useRealtime(DEFAULT_DEVICE, FIELD_VOLTAGE);
+  const currentRT = useRealtime(DEFAULT_DEVICE, FIELD_CURRENT);
+  const powerRT = useRealtime(DEFAULT_DEVICE, FIELD_POWER);
+  const pfRT = useRealtime(DEFAULT_DEVICE, FIELD_POWER_FACTOR);
+  const realtimePowerRT = useRealtime(DEFAULT_DEVICE, FIELD_REALTIME_POWER);
+
+  const voltagePoints = useMemo(() => sanitizePoints(voltageRT.points), [voltageRT.points]);
+  const currentPoints = useMemo(() => sanitizePoints(currentRT.points), [currentRT.points]);
+  const intervaledPowerPoints = useMemo(() => sanitizePoints(powerRT.points), [powerRT.points]);
+  const pfPoints = useMemo(() => sanitizePoints(pfRT.points), [pfRT.points]);
+  const realtimePowerPoints = useMemo(
+    () => sanitizePoints(realtimePowerRT.points),
+    [realtimePowerRT.points]
+  );
+
+  const powerNotesQ = useNotes(DEFAULT_DEVICE, METRIC_POWER);
+
+  const intervaledPowerNotesRaw = useMemo(
+    () =>
+      powerNotesQ.notes
+        .filter((n: any) => {
+          const field = n.anchor_field ?? FIELD_POWER;
+          return field === FIELD_POWER;
+        })
+        .map((n: any) => ({
+          ...n,
+          time: n.anchor_time ?? n.time,
+        })),
+    [powerNotesQ.notes]
+  );
+
+  const realtimePowerNotesRaw = useMemo(
+    () =>
+      powerNotesQ.notes
+        .filter((n: any) => n.anchor_field === FIELD_REALTIME_POWER)
+        .map((n: any) => ({
+          ...n,
+          time: n.anchor_time ?? n.time,
+        })),
+    [powerNotesQ.notes]
+  );
+
+  const intervaledPowerNotesInView = useNotesInWindow(
+    intervaledPowerPoints,
+    intervaledPowerNotesRaw
+  );
+
+  const realtimePowerNotesInView = useNotesInWindow(
+    realtimePowerPoints,
+    realtimePowerNotesRaw
+  );
+
+  const { token, busy, status, doLogin, doSignup, logout } = useAuth();
+
+  const [noteText, setNoteText] = useState("");
+  const [noteMode, setNoteMode] = useState<PowerNoteMode>("intervaled");
+  const [manualTimestamp, setManualTimestamp] = useState("");
+
+  const [selectedIntervaledPowerNoteId, setSelectedIntervaledPowerNoteId] =
+    useState<number | null>(null);
+  const [selectedRealtimePowerNoteId, setSelectedRealtimePowerNoteId] =
+    useState<number | null>(null);
+
+  const [selectedIntervaledPowerPoint, setSelectedIntervaledPowerPoint] =
+    useState<Point | null>(null);
+  const [selectedRealtimePowerPoint, setSelectedRealtimePowerPoint] =
+    useState<Point | null>(null);
+
+  const [latestHistory, setLatestHistory] = useState<HistoryRow | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const manualTimestampPreview = useMemo(
+    () => normalizeTimestampInput(manualTimestamp),
+    [manualTimestamp]
+  );
+
+  const refreshLatestHistory = useCallback(async () => {
+    try {
+      setHistoryError(null);
+
+      const qs = new URLSearchParams({
+        device: DEFAULT_DEVICE,
+        limit: "1",
+      }).toString();
+
+      const res = await fetch(`${API_BASE}/public/history?${qs}`);
+
+      if (!res.ok) {
+        throw new Error(`history request failed (${res.status})`);
       }
-    >
+
+      const data = (await res.json()) as HistoryRow[];
+      setLatestHistory(Array.isArray(data) && data.length ? data[0] : null);
+    } catch (e: any) {
+      setHistoryError(String(e?.message ?? e));
+    }
+  }, []);
+
+  const refreshAll = useCallback(() => {
+    voltageRT.refresh(ARCHIVE_LIMIT);
+    currentRT.refresh(ARCHIVE_LIMIT);
+    powerRT.refresh(ARCHIVE_LIMIT);
+    pfRT.refresh(ARCHIVE_LIMIT);
+    realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
+    powerNotesQ.refresh(NOTES_LIMIT);
+    refreshLatestHistory();
+  }, [
+    voltageRT,
+    currentRT,
+    powerRT,
+    pfRT,
+    realtimePowerRT,
+    powerNotesQ,
+    refreshLatestHistory,
+  ]);
+
+  useInterval(() => voltageRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
+  useInterval(() => currentRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
+  useInterval(() => powerRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
+  useInterval(() => pfRT.refresh(ARCHIVE_LIMIT), ARCHIVE_REFRESH_MS);
+
+  useInterval(() => realtimePowerRT.refresh(REALTIME_POWER_LIMIT), REALTIME_POWER_REFRESH_MS);
+  useInterval(() => powerNotesQ.refresh(NOTES_LIMIT), NOTES_REFRESH_MS);
+  useInterval(() => refreshLatestHistory(), HISTORY_REFRESH_MS);
+
+  useEffect(() => {
+    voltageRT.refresh(ARCHIVE_LIMIT);
+    currentRT.refresh(ARCHIVE_LIMIT);
+    powerRT.refresh(ARCHIVE_LIMIT);
+    pfRT.refresh(ARCHIVE_LIMIT);
+    realtimePowerRT.refresh(REALTIME_POWER_LIMIT);
+    powerNotesQ.refresh(NOTES_LIMIT);
+    refreshLatestHistory();
+  }, [refreshLatestHistory]);
+
+  const latestVoltage = latestHistory?.rms_voltage ?? null;
+  const latestCurrent = latestHistory?.rms_current ?? null;
+  const latestIntervaledPower = latestValue(intervaledPowerPoints);
+  const latestRealtimePower = latestValue(realtimePowerPoints);
+  const latestPF = latestHistory?.power_factor ?? null;
+
+  const intervaledPowerChartNotes = useMemo<ChartNote[]>(
+    () =>
+      intervaledPowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+      })),
+    [intervaledPowerNotesInView]
+  );
+
+  const realtimePowerChartNotes = useMemo<ChartNote[]>(
+    () =>
+      realtimePowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+      })),
+    [realtimePowerNotesInView]
+  );
+
+  const intervaledPowerNotesBelow = useMemo<NoteBelow[]>(
+    () =>
+      intervaledPowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+        valueAtNote:
+          typeof n.anchor_value === "number"
+            ? n.anchor_value
+            : valueNearTime(intervaledPowerPoints, n.time, 1900),
+      })),
+    [intervaledPowerNotesInView, intervaledPowerPoints]
+  );
+
+  const realtimePowerNotesBelow = useMemo<NoteBelow[]>(
+    () =>
+      realtimePowerNotesInView.map((n: any) => ({
+        id: n.id,
+        time: n.time,
+        text: n.text,
+        valueAtNote:
+          typeof n.anchor_value === "number"
+            ? n.anchor_value
+            : valueNearTime(realtimePowerPoints, n.time, 120),
+      })),
+    [realtimePowerNotesInView, realtimePowerPoints]
+  );
+
+  function getActiveField() {
+    return noteMode === "intervaled" ? FIELD_POWER : FIELD_REALTIME_POWER;
+  }
+
+  function getActivePoint() {
+    return noteMode === "intervaled"
+      ? selectedIntervaledPowerPoint
+      : selectedRealtimePowerPoint;
+  }
+
+  function handleManualTimestampChange(value: string) {
+    setManualTimestamp(value);
+    setSelectedIntervaledPowerPoint(null);
+    setSelectedRealtimePowerPoint(null);
+  }
+
+  async function addNote() {
+    if (!token) {
+      Alert.alert("Login required", "Please login to add notes.");
+      return;
+    }
+
+    if (!noteText.trim()) {
+      Alert.alert("Missing note", "Please write a note first.");
+      return;
+    }
+
+    const selectedPoint = getActivePoint();
+    const normalizedManualTimestamp = manualTimestampPreview;
+
+    if (!selectedPoint && !normalizedManualTimestamp) {
+      Alert.alert(
+        "Choose timestamp",
+        "Tap a numbered point on a power graph, use the quick picker below the graph, or manually enter a timestamp."
+      );
+      return;
+    }
+
+    const anchorField = getActiveField();
+    const anchorTime = selectedPoint?.time ?? normalizedManualTimestamp!;
+    const anchorValue = selectedPoint?.value ?? null;
+
+    try {
+      await createNote(token, {
+        device: DEFAULT_DEVICE,
+        metric: METRIC_POWER,
+        text: noteText.trim(),
+        time: anchorTime,
+        anchor_time: anchorTime,
+        anchor_value: anchorValue,
+        anchor_field: anchorField,
+      });
+
+      setNoteText("");
+      setManualTimestamp("");
+      setSelectedIntervaledPowerPoint(null);
+      setSelectedRealtimePowerPoint(null);
+      await powerNotesQ.refresh(NOTES_LIMIT);
+    } catch (e: any) {
+      Alert.alert("Add note failed", String(e?.message ?? e));
+    }
+  }
+
+  async function handleDeleteNote(noteId: number) {
+    if (!token) {
+      Alert.alert("Login required", "Please login to delete notes.");
+      return;
+    }
+
+    try {
+      await deleteNote(token, noteId);
+      await powerNotesQ.refresh(NOTES_LIMIT);
+      setSelectedIntervaledPowerNoteId((prev) => (prev === noteId ? null : prev));
+      setSelectedRealtimePowerNoteId((prev) => (prev === noteId ? null : prev));
+    } catch (e: any) {
+      Alert.alert("Delete note failed", String(e?.message ?? e));
+    }
+  }
+
+  const activeSelectedPoint = getActivePoint();
+
+  return (
+    <ScrollView contentContainerStyle={{ padding: PAGE_PADDING, gap: CARD_GAP }}>
       <View
         style={{
+          alignItems: "center",
+          justifyContent: "center",
           gap: 8,
-          padding: 16,
-          borderWidth: 1,
-          borderColor: "#e5e7eb",
-          borderRadius: 16,
-          backgroundColor: "#fff",
+          marginBottom: 4,
         }}
       >
-        <Text style={{ fontSize: 20, fontWeight: "700" }}>
-          History Table
+        <Text style={{ fontSize: 22, fontWeight: "700" }}>
+          EnergiLink Live Monitoring
         </Text>
+      </View>
 
-        <Text style={{ color: "#555" }}>
-          This table shows archived monthly history from the database, including voltage, current, power, power factor, and editable
-          notes per row.
-        </Text>
+      {voltageRT.error ? <Text style={{ color: "red" }}>voltage error: {voltageRT.error}</Text> : null}
+      {currentRT.error ? <Text style={{ color: "red" }}>current error: {currentRT.error}</Text> : null}
+      {powerRT.error ? <Text style={{ color: "red" }}>intervaled power error: {powerRT.error}</Text> : null}
+      {realtimePowerRT.error ? (
+        <Text style={{ color: "red" }}>realtime power error: {realtimePowerRT.error}</Text>
+      ) : null}
+      {pfRT.error ? <Text style={{ color: "red" }}>power factor error: {pfRT.error}</Text> : null}
+      {powerNotesQ.error ? <Text style={{ color: "red" }}>notes error: {powerNotesQ.error}</Text> : null}
+      {historyError ? <Text style={{ color: "red" }}>history error: {historyError}</Text> : null}
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <Pressable
-            disabled={!canGoPrev}
-            onPress={() => setSelectedMonth((prev) => shiftMonthKey(prev, -1))}
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              backgroundColor: "#fff",
-              opacity: canGoPrev ? 1 : 0.5,
-            }}
+      <Pressable
+        onPress={refreshAll}
+        style={{
+          padding: 10,
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: "#ddd",
+          alignSelf: "flex-start",
+        }}
+      >
+        <Text>Refresh now</Text>
+      </Pressable>
+
+      <MonitoringSummaryRow
+        voltage={latestVoltage}
+        current={latestCurrent}
+        intervaledPower={latestIntervaledPower}
+        realtimePower={latestRealtimePower}
+        kwhDays={14}
+      />
+
+      <MonthlyBillingCard token={token} device={DEFAULT_DEVICE} field={FIELD_POWER} />
+
+      <View
+        style={{
+          flexDirection: chartRowDirection,
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          flexWrap: "nowrap",
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <ChartCard
+            title={`Voltage (${ARCHIVE_INTERVAL_LABEL})`}
+            latestLabel="Latest voltage"
+            latestValueText={formatLatestValue(latestVoltage, 2, "V")}
+            minHeight={390}
           >
-            <Text style={{ fontWeight: "700" }}>Prev Month</Text>
-          </Pressable>
-
-          <View
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              backgroundColor: "#f8fafc",
-            }}
-          >
-            <Text style={{ fontWeight: "700" }}>{selectedMonthLabel}</Text>
-          </View>
-
-          <Pressable
-            disabled={!canGoNext}
-            onPress={() => setSelectedMonth((prev) => shiftMonthKey(prev, 1))}
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              backgroundColor: "#fff",
-              opacity: canGoNext ? 1 : 0.5,
-            }}
-          >
-            <Text style={{ fontWeight: "700" }}>Next Month</Text>
-          </Pressable>
+            <SimpleLineChart
+              points={voltagePoints}
+              unit="V"
+              decimals={2}
+              height={240}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              showYAxisLabels={true}
+              forceZeroInDomain={false}
+            />
+          </ChartCard>
         </View>
 
-        {historyMonths.length ? (
-          <View style={{ gap: 8 }}>
-            <Text style={{ fontWeight: "700", color: "#374151" }}>Previous Data</Text>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              {historyMonths.map((item) => (
-                <Pressable
-                  key={item.month_key}
-                  onPress={() => setSelectedMonth(item.month_key)}
-                  style={{
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    borderRadius: 999,
-                    borderWidth: 1,
-                    borderColor: selectedMonth === item.month_key ? "#111827" : "#d1d5db",
-                    backgroundColor: selectedMonth === item.month_key ? "#111827" : "#fff",
-                  }}
-                >
-                  <Text
-                    style={{
-                      color: selectedMonth === item.month_key ? "#fff" : "#111827",
-                      fontWeight: "700",
-                    }}
-                  >
-                    {item.label} ({item.rows})
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <View
-            style={{
-              minWidth: 160,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <ChartCard
+            title={`Current (${ARCHIVE_INTERVAL_LABEL})`}
+            latestLabel="Latest current"
+            latestValueText={formatLatestValue(latestCurrent, 3, "A")}
+            minHeight={390}
           >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Rows in selected month
-            </Text>
+            <SimpleLineChart
+              points={currentPoints}
+              unit="A"
+              decimals={3}
+              height={240}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              showYAxisLabels={true}
+              forceZeroInDomain={true}
+            />
+          </ChartCard>
+        </View>
+      </View>
 
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {filteredRows.length || selectedMonthRowCount}
-            </Text>
-          </View>
+      <DailyKwhBarCard days={14} />
 
-          <View
-            style={{
-              minWidth: 140,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
+      <View
+        style={{
+          flexDirection: chartRowDirection,
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          flexWrap: "nowrap",
+        }}
+      >
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <ChartCard
+            title={`Intervaled Power Graph (${ARCHIVE_INTERVAL_LABEL})`}
+            latestLabel="Latest archived power"
+            latestValueText={formatLatestValue(latestIntervaledPower, 2, "W")}
+            minHeight={470}
           >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Latest Voltage
+            <Text style={{ color: "#555" }}>
+              Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
             </Text>
 
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {formatValue(latestVoltage, 2, "V")}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              minWidth: 140,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
-          >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Latest Current
+            <Text style={{ color: "#555" }}>
+              notes total: {intervaledPowerNotesRaw.length} | notes in window: {intervaledPowerNotesInView.length}
             </Text>
 
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {formatValue(latestCurrent, 3, "A")}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              minWidth: 140,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
-          >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Latest Power
-            </Text>
-
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {formatValue(latestPower, 2, "W")}
-            </Text>
-          </View>
-
-          <View
-            style={{
-              minWidth: 140,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
-          >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Latest PF
-            </Text>
-
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {formatValue(latestPf, 3)}
-            </Text>
-          </View>
+            <SimpleLineChart
+              points={intervaledPowerPoints}
+              notes={intervaledPowerChartNotes}
+              unit="W"
+              decimals={2}
+              height={230}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              selectedNoteId={selectedIntervaledPowerNoteId}
+              selectedPointTime={selectedIntervaledPowerPoint?.time ?? null}
+              onSelectNoteId={(id) => setSelectedIntervaledPowerNoteId(id)}
+              onSelectPoint={(point) => {
+                setNoteMode("intervaled");
+                setSelectedIntervaledPowerPoint(point);
+                setManualTimestamp("");
+              }}
+              onSelectedPointInvalid={() => setSelectedIntervaledPowerPoint(null)}
+              numberedPointSelection={true}
+              maxNumberedPoints={8}
+              showPointChooser={true}
+            />
+          </ChartCard>
         </View>
 
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <Pressable
-            onPress={async () => {
-              await fetchAvailableMonths();
-              await fetchHistory(true);
-            }}
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              backgroundColor: "#fff",
-            }}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <ChartCard
+            title={`Realtime Power Graph (${REALTIME_INTERVAL_LABEL})`}
+            latestLabel="Latest realtime power"
+            latestValueText={formatLatestValue(latestRealtimePower, 2, "W")}
+            minHeight={470}
           >
-            <Text style={{ fontWeight: "700" }}>
-              {refreshing ? "Refreshing..." : "Refresh table"}
+            <Text style={{ color: "#555" }}>
+              Numbered points always follow the current visible graph. If a selected point leaves the graph, it is cleared automatically.
             </Text>
-          </Pressable>
 
-          <Pressable
-            onPress={exportToCSV}
-            style={{
-              alignSelf: "flex-start",
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              borderRadius: 10,
-              borderWidth: 1,
-              borderColor: "#bfdbfe",
-              backgroundColor: "#eff6ff",
-              opacity: filteredRows.length ? 1 : 0.6,
-            }}
-          >
-            <Text style={{ fontWeight: "700", color: "#1d4ed8" }}>
-              Export {selectedMonthLabel} CSV
+            <Text style={{ color: "#555" }}>
+              notes total: {realtimePowerNotesRaw.length} | notes in window: {realtimePowerNotesInView.length}
             </Text>
-          </Pressable>
+
+            <SimpleLineChart
+              points={realtimePowerPoints}
+              notes={realtimePowerChartNotes}
+              unit="W"
+              decimals={2}
+              height={230}
+              hoursBeforeLatest={3}
+              hoursAfterLatest={2}
+              selectedNoteId={selectedRealtimePowerNoteId}
+              selectedPointTime={selectedRealtimePowerPoint?.time ?? null}
+              onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
+              onSelectPoint={(point) => {
+                setNoteMode("realtime");
+                setSelectedRealtimePowerPoint(point);
+                setManualTimestamp("");
+              }}
+              onSelectedPointInvalid={() => setSelectedRealtimePowerPoint(null)}
+              numberedPointSelection={true}
+              maxNumberedPoints={10}
+              showPointChooser={true}
+            />
+          </ChartCard>
         </View>
-
-        {error ? (
-          <Text style={{ color: "red" }}>
-            history error: {error}
-          </Text>
-        ) : null}
       </View>
 
       <View
         style={{
-          borderWidth: 1,
-          borderColor: "#e5e7eb",
-          borderRadius: 16,
-          backgroundColor: "#fff",
-          overflow: "hidden",
+          flexDirection: "column",
+          gap: CARD_GAP,
+          alignItems: "stretch",
+          width: "100%",
         }}
       >
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-          <View style={{ minWidth: 1060 }}>
-            <View
+        <View style={{ width: "100%" }}>
+          <NotesBelowGraph
+            notes={intervaledPowerNotesBelow}
+            selectedNoteId={selectedIntervaledPowerNoteId}
+            onSelectNoteId={(id) => setSelectedIntervaledPowerNoteId(id)}
+            onClear={() => setSelectedIntervaledPowerNoteId(null)}
+            valueLabel="Intervaled power at note"
+            unit="W"
+            decimals={2}
+            canDelete={!!token}
+            onDelete={(id) => handleDeleteNote(id)}
+          />
+        </View>
+
+        {realtimePowerNotesBelow.length > 0 ? (
+          <View style={{ width: "100%" }}>
+            <NotesBelowGraph
+              notes={realtimePowerNotesBelow}
+              selectedNoteId={selectedRealtimePowerNoteId}
+              onSelectNoteId={(id) => setSelectedRealtimePowerNoteId(id)}
+              onClear={() => setSelectedRealtimePowerNoteId(null)}
+              valueLabel="Realtime power at note"
+              unit="W"
+              decimals={2}
+              canDelete={!!token}
+              onDelete={(id) => handleDeleteNote(id)}
+            />
+          </View>
+        ) : null}
+      </View>
+
+      <View>
+        <ChartCard
+          title={`Power Factor (${ARCHIVE_INTERVAL_LABEL})`}
+          latestLabel="Latest power factor"
+          latestValueText={formatLatestValue(latestPF, 3)}
+          minHeight={390}
+        >
+          <SimpleLineChart
+            points={pfPoints}
+            unit="PF"
+            decimals={3}
+            height={240}
+            hoursBeforeLatest={3}
+            hoursAfterLatest={2}
+            showYAxisLabels={true}
+            forceZeroInDomain={true}
+          />
+        </ChartCard>
+      </View>
+
+      <AuthPanel
+        token={token}
+        busy={busy}
+        status={status}
+        onLogin={async (email, password) => {
+          await doLogin(email, password);
+        }}
+        onSignup={async (email, password) => {
+          await doSignup(email, password);
+        }}
+        onLogout={logout}
+      />
+
+      {token ? (
+        <View
+          style={{
+            gap: 8,
+            padding: 12,
+            borderWidth: 1,
+            borderColor: "#e5e7eb",
+            borderRadius: 14,
+            backgroundColor: "#fff",
+          }}
+        >
+          <Text style={{ fontWeight: "700" }}>Add note to power graph</Text>
+
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+            <Pressable
+              onPress={() => setNoteMode("intervaled")}
               style={{
-                flexDirection: "row",
-                paddingVertical: 12,
+                paddingVertical: 8,
                 paddingHorizontal: 12,
-                backgroundColor: "#f8fafc",
-                borderBottomWidth: 1,
-                borderBottomColor: "#e5e7eb",
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: noteMode === "intervaled" ? "#111" : "#ddd",
+                backgroundColor: noteMode === "intervaled" ? "#111" : "#fff",
               }}
             >
               <Text
-                style={{ width: 220, fontWeight: "800", color: "#111827" }}
+                style={{
+                  color: noteMode === "intervaled" ? "#fff" : "#111",
+                  fontWeight: "600",
+                }}
               >
-                Time
+                Intervaled Power
               </Text>
+            </Pressable>
 
+            <Pressable
+              onPress={() => setNoteMode("realtime")}
+              style={{
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderRadius: 999,
+                borderWidth: 1,
+                borderColor: noteMode === "realtime" ? "#111" : "#ddd",
+                backgroundColor: noteMode === "realtime" ? "#111" : "#fff",
+              }}
+            >
               <Text
-                style={{ width: 130, fontWeight: "800", color: "#111827" }}
+                style={{
+                  color: noteMode === "realtime" ? "#fff" : "#111",
+                  fontWeight: "600",
+                }}
               >
-                Voltage
+                Realtime Power
               </Text>
-
-              <Text
-                style={{ width: 130, fontWeight: "800", color: "#111827" }}
-              >
-                Current
-              </Text>
-
-              <Text
-                style={{ width: 130, fontWeight: "800", color: "#111827" }}
-              >
-                Power
-              </Text>
-
-              <Text
-                style={{ width: 110, fontWeight: "800", color: "#111827" }}
-              >
-                PF
-              </Text>
-
-              <Text
-                style={{ width: 320, fontWeight: "800", color: "#111827" }}
-              >
-                Note
-              </Text>
-            </View>
-
-            {loading ? (
-              <View style={{ padding: 20, alignItems: "center" }}>
-                <ActivityIndicator />
-                <Text style={{ marginTop: 8, color: "#555" }}>
-                  Loading history...
-                </Text>
-              </View>
-            ) : filteredRows.length === 0 ? (
-              <View style={{ padding: 20 }}>
-                <Text style={{ color: "#555" }}>
-                  No rows found for {selectedMonthLabel}.
-                </Text>
-              </View>
-            ) : (
-              filteredRows.map((row, idx) => (
-                <View
-                  key={`${row.time}-${idx}`}
-                  style={{
-                    flexDirection: "row",
-                    paddingVertical: 12,
-                    paddingHorizontal: 12,
-                    borderBottomWidth:
-                      idx === filteredRows.length - 1 ? 0 : 1,
-                    borderBottomColor: "#f3f4f6",
-                    backgroundColor: idx % 2 === 0 ? "#fff" : "#fcfcfd",
-                  }}
-                >
-                  <Text style={{ width: 220, color: "#111827" }}>
-                    {formatTime(row.time)}
-                  </Text>
-
-                  <Text style={{ width: 130, color: "#111827" }}>
-                    {formatValue(row.rms_voltage, 2, "V")}
-                  </Text>
-
-                  <Text style={{ width: 130, color: "#111827" }}>
-                    {formatValue(row.rms_current, 3, "A")}
-                  </Text>
-
-                  <Text style={{ width: 130, color: "#111827" }}>
-                    {formatValue(row.power, 2, "W")}
-                  </Text>
-
-                  <Text style={{ width: 110, color: "#111827" }}>
-                    {formatValue(row.power_factor, 3)}
-                  </Text>
-
-                  <EditableNoteCell
-                    token={token}
-                    row={row}
-                    onSaved={handleNoteSaved}
-                  />
-                </View>
-              ))
-            )}
+            </Pressable>
           </View>
-        </ScrollView>
-      </View>
 
-      <Text style={{ color: "#6b7280", fontSize: 12 }}>
-        Voltage, current, power, and power factor are sensor readings. Only the
-        note column is manually editable.
-      </Text>
+          <Text style={{ color: "#555" }}>
+            Selected point:{" "}
+            {activeSelectedPoint
+              ? `${new Date(activeSelectedPoint.time).toLocaleString()} | ${activeSelectedPoint.value.toFixed(2)} W`
+              : "None"}
+          </Text>
+
+          <Text style={{ color: "#555" }}>
+            Manual timestamp:{" "}
+            {manualTimestampPreview
+              ? new Date(manualTimestampPreview).toLocaleString()
+              : "None"}
+          </Text>
+
+          <Text style={{ color: "#555" }}>
+            If a selected numbered point leaves the visible graph, it is cleared automatically so you do not save an old hidden point by mistake.
+          </Text>
+
+          <TextInput
+            value={manualTimestamp}
+            onChangeText={handleManualTimestampChange}
+            placeholder="Optional timestamp (example: 2026-03-15 14:30 or 2026-03-15T14:30:00)"
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 10,
+              padding: 10,
+              backgroundColor: "#fff",
+            }}
+          />
+
+          <Text style={{ color: "#555" }}>
+            Typing a manual timestamp clears any selected graph point.
+          </Text>
+
+          <TextInput
+            value={noteText}
+            onChangeText={setNoteText}
+            placeholder="Write a power note..."
+            style={{
+              borderWidth: 1,
+              borderColor: "#ddd",
+              borderRadius: 10,
+              padding: 10,
+              backgroundColor: "#fff",
+            }}
+          />
+
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Pressable
+              onPress={() => {
+                setManualTimestamp("");
+                setSelectedIntervaledPowerPoint(null);
+                setSelectedRealtimePowerPoint(null);
+              }}
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: "#ddd",
+                alignItems: "center",
+              }}
+            >
+              <Text>Clear time selection</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={addNote}
+              style={{
+                padding: 12,
+                borderRadius: 12,
+                backgroundColor: "#111",
+                alignItems: "center",
+                flex: 1,
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                Add Power note
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
