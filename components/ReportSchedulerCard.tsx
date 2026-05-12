@@ -110,14 +110,16 @@ export function ReportSchedulerCard({
     try {
       setSaveBusy(true);
 
-      const sendTime = schedule.send_time.trim();
+      const rawSendTime = schedule.send_time.trim();
+      const sendTimeMatch = rawSendTime.match(/^(\d{1,2}):(\d{1,2})$/);
 
-      if (!/^\d{2}:\d{2}$/.test(sendTime)) {
-        Alert.alert("Invalid time", "Send time must use HH:MM format.");
+      if (!sendTimeMatch) {
+        Alert.alert("Invalid time", "Send time must use HH:MM format, for example 08:00.");
         return;
       }
 
-      const [hour, minute] = sendTime.split(":").map(Number);
+      const hour = Number(sendTimeMatch[1]);
+      const minute = Number(sendTimeMatch[2]);
       if (
         !Number.isFinite(hour) ||
         !Number.isFinite(minute) ||
@@ -129,6 +131,8 @@ export function ReportSchedulerCard({
         Alert.alert("Invalid time", "Please enter a valid time from 00:00 to 23:59.");
         return;
       }
+
+      const sendTime = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
       let parsedDayOfMonth: number | null = null;
 
@@ -152,7 +156,7 @@ export function ReportSchedulerCard({
         }
       }
 
-      await updateReportSchedule({
+      const saved = await updateReportSchedule({
         frequency: schedule.frequency,
         send_time: sendTime,
         day_of_week: schedule.frequency === "weekly" ? schedule.day_of_week ?? 0 : null,
@@ -160,10 +164,15 @@ export function ReportSchedulerCard({
         enabled: schedule.enabled,
       });
 
+      setSchedule(saved);
+      setDayOfMonthInput(saved.day_of_month != null ? String(saved.day_of_month) : "");
+      setSendStatus(`Schedule saved: ${saved.frequency} at ${saved.send_time}`);
       await loadAll();
       Alert.alert("Saved", "Report schedule saved.");
     } catch (e: any) {
-      Alert.alert("Save failed", String(e?.message ?? e));
+      const message = String(e?.message ?? e);
+      setSendStatus(`Schedule save failed: ${message}`);
+      Alert.alert("Save failed", message);
     } finally {
       setSaveBusy(false);
     }
