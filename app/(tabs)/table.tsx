@@ -450,10 +450,6 @@ export default function TableScreen() {
     return historyMonths.map((item) => item.month_key);
   }, [historyMonths]);
 
-  const selectedMonthRowCount = useMemo(() => {
-    return historyMonths.find((item) => item.month_key === selectedMonth)?.rows ?? 0;
-  }, [historyMonths, selectedMonth]);
-
   useEffect(() => {
     if (!selectedMonth && availableMonths.length > 0) {
       setSelectedMonth(availableMonths[0]);
@@ -707,29 +703,6 @@ export default function TableScreen() {
         ) : null}
 
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-          <View
-            style={{
-              minWidth: 160,
-              padding: 12,
-              borderWidth: 1,
-              borderColor: "#d1d5db",
-              borderRadius: 12,
-              backgroundColor: "#f8fafc",
-            }}
-          >
-            <Text
-              style={{ fontSize: 12, color: "#6b7280", fontWeight: "600" }}
-            >
-              Rows in selected month
-            </Text>
-
-            <Text
-              style={{ fontSize: 22, fontWeight: "800", color: "#111827" }}
-            >
-              {filteredRows.length || selectedMonthRowCount}
-            </Text>
-          </View>
-
           <View
             style={{
               minWidth: 140,
