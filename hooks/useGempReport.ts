@@ -129,8 +129,14 @@ function parseNum(v?: string) {
   return Number.isFinite(n) ? n : null;
 }
 
-function averageString(values: Array<number | null>, decimals = 2) {
-  const nums = values.filter((v): v is number => v !== null);
+function averageString(
+  values: Array<number | null>,
+  decimals = 2,
+  options: { positiveOnly?: boolean } = {}
+) {
+  const nums = values.filter((v): v is number =>
+    v !== null && (!options.positiveOnly || v > 0)
+  );
   if (!nums.length) return "";
   const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
   return avg.toFixed(decimals);
@@ -367,7 +373,7 @@ export function useGempReport() {
       avgGrossArea: averageString(report.rows.map((r) => parseNum(r.grossArea)), 2),
       avgAirconArea: averageString(report.rows.map((r) => parseNum(r.airconArea)), 2),
       avgOccupants: averageString(report.rows.map((r) => parseNum(r.occupants)), 2),
-      avgKwh: averageString(report.rows.map((r) => parseNum(r.kwh)), 2),
+      avgKwh: averageString(report.rows.map((r) => parseNum(r.kwh)), 2, { positiveOnly: true }),
     };
   }, [report.rows]);
 

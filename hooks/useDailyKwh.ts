@@ -64,7 +64,7 @@ type MonthMeta = {
   latestDay: number;
 };
 
-const API_HISTORY_LIMIT = 100000;
+const API_HISTORY_LIMIT = 50000;
 const MAX_GAP_HOURS = 1;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -144,12 +144,12 @@ function buildSummary<T extends { label: string; kwh: number }>(data: T[]): KwhS
   );
 
   return {
-    current: Number(current.toFixed(3)),
-    previous: Number(previous.toFixed(3)),
-    avg: Number(avg.toFixed(3)),
-    total: Number(total.toFixed(3)),
+    current: Number(current.toFixed(2)),
+    previous: Number(previous.toFixed(2)),
+    avg: Number(avg.toFixed(2)),
+    total: Number(total.toFixed(2)),
     peakLabel: peak?.label ?? "—",
-    peakKwh: Number((peak?.kwh ?? 0).toFixed(3)),
+    peakKwh: Number((peak?.kwh ?? 0).toFixed(2)),
   };
 }
 
@@ -160,7 +160,7 @@ function buildCompare14Summary(
   const currentSummary = buildSummary(currentData);
   const previousSummary = buildSummary(previousData);
 
-  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(3));
+  const deltaKwh = Number((currentSummary.total - previousSummary.total).toFixed(2));
   const deltaPercent =
     previousSummary.total > 0
       ? Number(
@@ -191,9 +191,8 @@ function isValidHistoryPoint(p: HistoryPoint) {
   if (typeof p.rms_current !== "number" || !Number.isFinite(p.rms_current)) return false;
   if (typeof p.power_factor !== "number" || !Number.isFinite(p.power_factor)) return false;
 
-  if (p.power <= 0) return false;
-  if (p.rms_voltage <= 0) return false;
-  if (p.rms_current <= 0) return false;
+  if (p.power < 0) return false;
+  if (p.rms_voltage === 0 && p.rms_current === 0) return false;
   if (p.power_factor <= 0.001 && p.power > 50) return false;
 
   return true;
@@ -248,7 +247,7 @@ function buildDailyWindowData(
     return {
       dayKey: key,
       label: dayLabel(dayMs),
-      kwh: Number((buckets.get(key) || 0).toFixed(3)),
+      kwh: Number((buckets.get(key) || 0).toFixed(2)),
     };
   });
 }
@@ -457,32 +456,15 @@ export function useDailyKwh(
   }, [selectedPeriod, previousPeriod, dailyData, previousPeriodData, dailySummary]);
 
   const monthlyData = useMemo<MonthlyKwhBarPoint[]>(() => {
-    const now = Date.now();
-    const from = new Date(now);
-    from.setDate(1);
-    from.setHours(0, 0, 0, 0);
-    from.setMonth(from.getMonth() - (months - 1));
-    const fromMs = from.getTime();
-
     const buckets = new Map<string, number>();
-
-    for (let i = months - 1; i >= 0; i--) {
-      const monthMs = new Date(now);
-      monthMs.setDate(1);
-      monthMs.setHours(0, 0, 0, 0);
-      monthMs.setMonth(monthMs.getMonth() - i);
-      const key = localMonthKey(monthMs.getTime());
-      buckets.set(key, 0);
-    }
+    const monthsWithValidSegments = new Set<string>();
 
     if (sorted.length >= 2) {
       for (let i = 0; i < sorted.length - 1; i++) {
         const current = sorted[i];
         const next = sorted[i + 1];
 
-        if (next.timeMs <= fromMs) continue;
-
-        const segStart = Math.max(current.timeMs, fromMs);
+        const segStart = current.timeMs;
         const segEnd = next.timeMs;
 
         if (segEnd <= segStart) continue;
@@ -498,9 +480,12 @@ export function useDailyKwh(
           const sliceHours = (sliceEnd - cursor) / 1000 / 60 / 60;
           const monthStart = startOfMonthMs(cursor);
           const key = localMonthKey(monthStart);
+          const kwh = toKwh(current.power, sliceHours);
 
-          if (buckets.has(key)) {
-            buckets.set(key, (buckets.get(key) || 0) + toKwh(current.power, sliceHours));
+          buckets.set(key, (buckets.get(key) || 0) + kwh);
+
+          if (kwh > 0) {
+            monthsWithValidSegments.add(key);
           }
 
           cursor = sliceEnd;
@@ -508,14 +493,18 @@ export function useDailyKwh(
       }
     }
 
-    return Array.from(buckets.keys()).map((key) => {
-      const monthMs = new Date(`${key}-01T00:00:00`).getTime();
-      return {
-        monthKey: key,
-        label: monthLabel(monthMs),
-        kwh: Number((buckets.get(key) || 0).toFixed(3)),
-      };
-    });
+    return Array.from(buckets.entries())
+      .filter(([key, kwh]) => monthsWithValidSegments.has(key) && kwh > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-months)
+      .map(([key, kwh]) => {
+        const monthMs = new Date(`${key}-01T00:00:00`).getTime();
+        return {
+          monthKey: key,
+          label: monthLabel(monthMs),
+          kwh: Number(kwh.toFixed(2)),
+        };
+      });
   }, [sorted, months]);
 
   const monthlySummary = useMemo(() => buildSummary(monthlyData), [monthlyData]);
