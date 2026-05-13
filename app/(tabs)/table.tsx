@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { API_BASE, DEFAULT_DEVICE } from "../../config";
+import { API_BASE, DEFAULT_DEVICE } from "../../config";4
 import { saveHistoryNote } from "../../lib/api";
 import { useAuth } from "../../hooks/useAuth";
 import { AuthPanel } from "../../components/AuthPanel";
@@ -694,7 +694,7 @@ export default function TableScreen() {
                       fontWeight: "700",
                     }}
                   >
-                    {item.label} ({item.rows})
+                    {item.label} 
                   </Text>
                 </Pressable>
               ))}
